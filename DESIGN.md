@@ -94,6 +94,7 @@ Block-based structure for rich text (JSON):
   - **Right pane**: reserved for future context tools (metadata, history, assistants, etc.)
 - Notebook and entry operations (create, rename, delete, move entry across notebooks) are initiated in the left tree pane via inline controls and right-click context menus.
 - v1 interaction model avoids modal dialogs for core tree operations; creation/rename/move flows are inline in the workspace.
+- Theme follows system appearance (light/dark mode) across shell, explorer, and editor chrome.
 - Blocks store as JSON in the database.
 - Markdown export uses a renderer to convert blocks to Markdown.
 - Supports inline images and attachments.

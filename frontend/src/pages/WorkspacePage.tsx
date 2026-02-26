@@ -266,7 +266,7 @@ export function WorkspacePage() {
 
   return (
     <div
-      className="grid h-[calc(100vh-72px)] bg-white"
+      className="grid h-[calc(100vh-72px)] bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
       style={{ gridTemplateColumns: `${leftPaneWidth}px 1px minmax(0,1fr) 1px ${rightPaneWidth}px` }}
       onClick={() => setContextMenu(null)}
       onContextMenu={(event) => {
@@ -275,13 +275,13 @@ export function WorkspacePage() {
         }
       }}
     >
-      <aside className="overflow-y-auto border-r border-slate-200 text-sm">
-        <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600">
+      <aside className="overflow-y-auto border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
           <span>Explorer</span>
           <div className="flex items-center gap-1">
             <button
               title="New Notebook"
-              className="p-1 hover:bg-slate-100"
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800"
               onClick={() => {
                 setCreatingNotebookName("Untitled Notebook");
                 setCreatingEntryNotebookId(null);
@@ -292,7 +292,7 @@ export function WorkspacePage() {
             </button>
             <button
               title="New Entry"
-              className="p-1 hover:bg-slate-100"
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800"
               onClick={() => {
                 const firstNotebook = orderedNotebooks[0];
                 if (!firstNotebook) return;
@@ -310,7 +310,7 @@ export function WorkspacePage() {
         <div className="py-1">
           {creatingNotebookName !== "" && (
             <div className="flex items-center gap-2 px-3 py-1">
-              <Folder size={14} className="text-slate-500" />
+              <Folder size={14} className="text-slate-500 dark:text-slate-400" />
               <input
                 autoFocus
                 value={creatingNotebookName}
@@ -320,12 +320,12 @@ export function WorkspacePage() {
                   if (event.key === "Enter") await submitCreateNotebook();
                   if (event.key === "Escape") setCreatingNotebookName("");
                 }}
-                className="w-full border border-slate-300 px-1 py-0.5 text-sm outline-none"
+                className="w-full border border-slate-300 dark:border-slate-700 px-1 py-0.5 text-sm outline-none dark:bg-slate-950 dark:text-slate-100"
               />
             </div>
           )}
 
-          {notebooksQuery.isLoading && <div className="px-3 py-2 text-slate-500">Loading...</div>}
+          {notebooksQuery.isLoading && <div className="px-3 py-2 text-slate-500 dark:text-slate-400">Loading...</div>}
 
           {orderedNotebooks.map((notebook) => {
             const entries = entriesByNotebook[notebook.id] ?? [];
@@ -334,8 +334,8 @@ export function WorkspacePage() {
             return (
               <div key={notebook.id}>
                 <div
-                  className={`group flex items-center gap-1 px-2 py-1 hover:bg-slate-100 ${
-                    dropNotebookId === notebook.id ? "bg-blue-100" : ""
+                  className={`group flex items-center gap-1 px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800 ${
+                    dropNotebookId === notebook.id ? "bg-blue-100 dark:bg-blue-900/40" : ""
                   }`}
                   onContextMenu={(event) =>
                     openContextMenu(event, {
@@ -368,7 +368,7 @@ export function WorkspacePage() {
                   >
                     {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </button>
-                  <Folder size={14} className="text-slate-500" />
+                  <Folder size={14} className="text-slate-500 dark:text-slate-400" />
 
                   {renameState?.kind === "notebook" && renameState.id === notebook.id ? (
                     <input
@@ -382,7 +382,7 @@ export function WorkspacePage() {
                         if (event.key === "Enter") await submitRename();
                         if (event.key === "Escape") setRenameState(null);
                       }}
-                      className="w-full border border-slate-300 px-1 py-0.5 text-sm outline-none"
+                      className="w-full border border-slate-300 dark:border-slate-700 px-1 py-0.5 text-sm outline-none dark:bg-slate-950 dark:text-slate-100"
                     />
                   ) : (
                     <button
@@ -397,7 +397,7 @@ export function WorkspacePage() {
                   )}
 
                   <button
-                    className="ml-auto hidden p-1 text-slate-500 hover:bg-slate-200 group-hover:block"
+                    className="ml-auto hidden p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 group-hover:block"
                     title="New Entry"
                     onClick={() => {
                       setCreatingEntryNotebookId(notebook.id);
@@ -413,7 +413,7 @@ export function WorkspacePage() {
                   <div className="pl-7">
                     {creatingEntryNotebookId === notebook.id && (
                       <div className="flex items-center gap-2 py-1 pr-2">
-                        <FileText size={14} className="text-slate-500" />
+                        <FileText size={14} className="text-slate-500 dark:text-slate-400" />
                         <input
                           autoFocus
                           value={creatingEntryTitle}
@@ -426,7 +426,7 @@ export function WorkspacePage() {
                               setCreatingEntryTitle("");
                             }
                           }}
-                          className="w-full border border-slate-300 px-1 py-0.5 text-sm outline-none"
+                          className="w-full border border-slate-300 dark:border-slate-700 px-1 py-0.5 text-sm outline-none dark:bg-slate-950 dark:text-slate-100"
                         />
                       </div>
                     )}
@@ -436,7 +436,7 @@ export function WorkspacePage() {
                         key={entry.id}
                         draggable
                         className={`group flex items-center gap-2 py-1 pr-2 ${
-                          selectedEntry?.id === entry.id ? "bg-blue-100" : "hover:bg-slate-100"
+                          selectedEntry?.id === entry.id ? "bg-blue-100 dark:bg-blue-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-800"
                         }`}
                         onContextMenu={(event) =>
                           openContextMenu(event, {
@@ -453,7 +453,7 @@ export function WorkspacePage() {
                           setDropNotebookId(null);
                         }}
                       >
-                        <FileText size={14} className="text-slate-500" />
+                        <FileText size={14} className="text-slate-500 dark:text-slate-400" />
 
                         {renameState?.kind === "entry" && renameState.id === entry.id ? (
                           <input
@@ -467,7 +467,7 @@ export function WorkspacePage() {
                               if (event.key === "Enter") await submitRename();
                               if (event.key === "Escape") setRenameState(null);
                             }}
-                            className="w-full border border-slate-300 px-1 py-0.5 text-sm outline-none"
+                            className="w-full border border-slate-300 dark:border-slate-700 px-1 py-0.5 text-sm outline-none dark:bg-slate-950 dark:text-slate-100"
                           />
                         ) : (
                           <button className="truncate text-left" onClick={() => setSelectedEntryId(entry.id)}>
@@ -486,13 +486,13 @@ export function WorkspacePage() {
       </aside>
 
       <div
-        className="cursor-col-resize bg-slate-300 hover:bg-slate-400"
+        className="cursor-col-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
         onMouseDown={(event) => {
           dragState.current = { side: "left", startX: event.clientX, startWidth: leftPaneWidth };
         }}
       />
 
-      <section className="overflow-y-auto bg-white">
+      <section className="overflow-y-auto bg-white dark:bg-slate-900">
         {selectedEntry ? (
           <EntryEditorForm
             initialTitle={selectedEntry.title}
@@ -507,33 +507,33 @@ export function WorkspacePage() {
             }}
           />
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-slate-500">
+          <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
             Create an entry from Explorer to begin.
           </div>
         )}
       </section>
 
       <div
-        className="cursor-col-resize bg-slate-300 hover:bg-slate-400"
+        className="cursor-col-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
         onMouseDown={(event) => {
           dragState.current = { side: "right", startX: event.clientX, startWidth: rightPaneWidth };
         }}
       />
 
-      <aside className="border-l border-slate-200 bg-white p-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Inspector</div>
-        <p className="mt-2 text-sm text-slate-500">Reserved for future tools.</p>
+      <aside className="border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Inspector</div>
+        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Reserved for future tools.</p>
       </aside>
 
       {contextMenu && (
         <div
-          className="fixed z-50 min-w-44 border border-slate-300 bg-white py-1 text-sm shadow-lg"
+          className="fixed z-50 min-w-44 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 py-1 text-sm shadow-lg"
           style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(event) => event.stopPropagation()}
         >
           {contextMenu.kind === "root" && (
             <button
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
               onClick={() => {
                 setContextMenu(null);
                 setCreatingNotebookName("Untitled Notebook");
@@ -547,7 +547,7 @@ export function WorkspacePage() {
           {contextMenu.kind === "notebook" && (
             <>
               <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
                   setContextMenu(null);
                   setCreatingEntryNotebookId(contextMenu.notebookId);
@@ -558,7 +558,7 @@ export function WorkspacePage() {
                 <FilePlus2 size={14} /> New Entry
               </button>
               <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
                   const notebook = orderedNotebooks.find((n) => n.id === contextMenu.notebookId);
                   setContextMenu(null);
@@ -568,7 +568,7 @@ export function WorkspacePage() {
                 <Pencil size={14} /> Rename
               </button>
               <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
                 onClick={async () => {
                   setContextMenu(null);
                   await deleteNotebook.mutateAsync(contextMenu.notebookId);
@@ -582,7 +582,7 @@ export function WorkspacePage() {
           {contextMenu.kind === "entry" && (
             <>
               <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
                   setContextMenu(null);
                   setRenameState({ kind: "entry", id: contextMenu.entryId, value: menuEntry?.title ?? "" });
@@ -591,7 +591,7 @@ export function WorkspacePage() {
                 <Pencil size={14} /> Rename
               </button>
               <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50"
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
                 onClick={async () => {
                   setContextMenu(null);
                   await deleteEntry.mutateAsync(contextMenu.entryId);
