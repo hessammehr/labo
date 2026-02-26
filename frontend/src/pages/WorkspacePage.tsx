@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
@@ -7,7 +14,6 @@ import {
   FileText,
   Folder,
   FolderPlus,
-  MoveRight,
   Pencil,
   Plus,
   Trash2,
@@ -51,8 +57,8 @@ export function WorkspacePage() {
   const [creatingEntryTitle, setCreatingEntryTitle] = useState("");
   const [renameState, setRenameState] = useState<RenameState>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [movingEntryId, setMovingEntryId] = useState<string | null>(null);
-  const [moveTargetNotebookId, setMoveTargetNotebookId] = useState<string>("");
+  const [draggingEntry, setDraggingEntry] = useState<{ entryId: string; fromNotebookId: string } | null>(null);
+  const [dropNotebookId, setDropNotebookId] = useState<string | null>(null);
 
   const [leftPaneWidth, setLeftPaneWidth] = useState(320);
   const [rightPaneWidth, setRightPaneWidth] = useState(280);
@@ -181,8 +187,7 @@ export function WorkspacePage() {
     },
     onSuccess: async () => {
       await refreshTree();
-      setMovingEntryId(null);
-      setMoveTargetNotebookId("");
+      setDropNotebookId(null);
     },
   });
 
@@ -244,6 +249,20 @@ export function WorkspacePage() {
   };
 
   const menuEntry = contextMenu?.kind === "entry" ? allEntries.find((e) => e.id === contextMenu.entryId) : null;
+
+  const onEntryDragStart = (event: ReactDragEvent, entry: Entry) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/entry-id", entry.id);
+    setDraggingEntry({ entryId: entry.id, fromNotebookId: entry.notebook_id });
+  };
+
+  const onNotebookDrop = async (event: ReactDragEvent, notebookId: string) => {
+    event.preventDefault();
+    if (!draggingEntry) return;
+    setDropNotebookId(null);
+    if (draggingEntry.fromNotebookId === notebookId) return;
+    await moveEntry.mutateAsync({ entryId: draggingEntry.entryId, notebookId });
+  };
 
   return (
     <div
@@ -315,7 +334,9 @@ export function WorkspacePage() {
             return (
               <div key={notebook.id}>
                 <div
-                  className="group flex items-center gap-1 px-2 py-1 hover:bg-slate-100"
+                  className={`group flex items-center gap-1 px-2 py-1 hover:bg-slate-100 ${
+                    dropNotebookId === notebook.id ? "bg-blue-100" : ""
+                  }`}
                   onContextMenu={(event) =>
                     openContextMenu(event, {
                       x: event.clientX,
@@ -324,6 +345,17 @@ export function WorkspacePage() {
                       notebookId: notebook.id,
                     })
                   }
+                  onDragOver={(event) => {
+                    if (!draggingEntry || draggingEntry.fromNotebookId === notebook.id) return;
+                    event.preventDefault();
+                    setDropNotebookId(notebook.id);
+                  }}
+                  onDragLeave={() => {
+                    if (dropNotebookId === notebook.id) setDropNotebookId(null);
+                  }}
+                  onDrop={(event) => {
+                    void onNotebookDrop(event, notebook.id);
+                  }}
                 >
                   <button
                     className="p-0.5"
@@ -402,6 +434,7 @@ export function WorkspacePage() {
                     {entries.map((entry) => (
                       <div
                         key={entry.id}
+                        draggable
                         className={`group flex items-center gap-2 py-1 pr-2 ${
                           selectedEntry?.id === entry.id ? "bg-blue-100" : "hover:bg-slate-100"
                         }`}
@@ -414,6 +447,11 @@ export function WorkspacePage() {
                             notebookId: notebook.id,
                           })
                         }
+                        onDragStart={(event) => onEntryDragStart(event, entry)}
+                        onDragEnd={() => {
+                          setDraggingEntry(null);
+                          setDropNotebookId(null);
+                        }}
                       >
                         <FileText size={14} className="text-slate-500" />
 
@@ -445,43 +483,6 @@ export function WorkspacePage() {
           })}
         </div>
 
-        {movingEntryId && (
-          <div className="border-t border-slate-200 px-3 py-2">
-            <div className="mb-1 text-xs text-slate-600">Move entry to notebook</div>
-            <select
-              value={moveTargetNotebookId}
-              onChange={(event) => setMoveTargetNotebookId(event.target.value)}
-              className="mb-2 w-full border border-slate-300 bg-white px-2 py-1 text-sm"
-            >
-              <option value="">Select notebook...</option>
-              {orderedNotebooks.map((n) => (
-                <option key={n.id} value={n.id}>
-                  {n.title}
-                </option>
-              ))}
-            </select>
-            <div className="flex gap-2">
-              <button
-                className="border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
-                onClick={async () => {
-                  if (!moveTargetNotebookId) return;
-                  await moveEntry.mutateAsync({ entryId: movingEntryId, notebookId: moveTargetNotebookId });
-                }}
-              >
-                Move
-              </button>
-              <button
-                className="border border-slate-300 px-2 py-1 text-xs hover:bg-slate-100"
-                onClick={() => {
-                  setMovingEntryId(null);
-                  setMoveTargetNotebookId("");
-                }}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
       </aside>
 
       <div
@@ -588,16 +589,6 @@ export function WorkspacePage() {
                 }}
               >
                 <Pencil size={14} /> Rename
-              </button>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100"
-                onClick={() => {
-                  setContextMenu(null);
-                  setMovingEntryId(contextMenu.entryId);
-                  setMoveTargetNotebookId("");
-                }}
-              >
-                <MoveRight size={14} /> Move...
               </button>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50"
