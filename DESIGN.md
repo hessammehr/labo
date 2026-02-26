@@ -43,7 +43,10 @@ This document outlines the design for an Electronic Lab Notebook (ELN) system. T
 - Efficient streaming for large files (Excel/CSV).
 
 ## 6. System Architecture (High Level)
-- **Frontend**: React web app with BlockNote block-based editor and attachment manager.
+- **Frontend**: React + TypeScript single-page workspace app (Bun + Vite + Tailwind) with:
+  - Left tree navigation pane (notebooks + entries)
+  - Center editor pane (BlockNote)
+  - Right utility pane (reserved for future features)
 - **Backend**: Python/FastAPI REST API with services for:
   - User management & auth (JWT + bcrypt)
   - Notebook & entry management
@@ -85,6 +88,12 @@ Block-based structure for rich text (JSON):
 
 ## 9. Rich Text & Block Editor
 - Use BlockNote for the block-based editor (Notion-like UX, fast integration).
+- UI is a single workspace page with **three resizable panes** separated by draggable vertical splitters:
+  - **Left pane**: VS Code-style Explorer tree of notebooks and entries
+  - **Center pane**: active entry editor
+  - **Right pane**: reserved for future context tools (metadata, history, assistants, etc.)
+- Notebook and entry operations (create, rename, delete, move entry across notebooks) are initiated in the left tree pane via inline controls and right-click context menus.
+- v1 interaction model avoids modal dialogs for core tree operations; creation/rename/move flows are inline in the workspace.
 - Blocks store as JSON in the database.
 - Markdown export uses a renderer to convert blocks to Markdown.
 - Supports inline images and attachments.
@@ -120,11 +129,12 @@ Block-based structure for rich text (JSON):
 - `GET /notebooks/{id}/export` (md/json)
 
 ### Entries
+- `GET /entries/notebook/{notebook_id}` (list entries for tree view)
 - `GET /entries/{id}` (json)
 - `GET /entries/{id}/markdown`
 - `GET /entries/{id}/revisions`
 - `POST /entries` (create)
-- `PUT /entries/{id}` (update, creates revision)
+- `PUT /entries/{id}` (update, creates revision; supports move by setting `notebook_id`)
 - `DELETE /entries/{id}`
 - `POST /entries/{id}/export` (docx/latex)
 
@@ -154,9 +164,13 @@ Block-based structure for rich text (JSON):
 - Pagination for notebook/entry listings.
 
 ## 16. Tooling & Dev Workflow
-- **Package management**: `uv` exclusively — no pip, no manual venv. `uv run` for project commands, `uvx` for standalone tools.
+- **Backend package management**: `uv` exclusively — no pip, no manual venv. `uv run` for project commands, `uvx` for standalone tools.
+- **Frontend package management**: Bun (`bun install`, `bun dev`, `bun run build`).
 - **Database migrations**: Alembic (auto-generates migrations by diffing SQLAlchemy models against the DB).
-- **Makefile targets**: `dev`, `run`, `serve` (Tailscale HTTPS), `test`, `lint`, `fmt`, `migrate`, `migrate-new`.
+- **Makefile targets**:
+  - `dev` runs backend and frontend together
+  - `dev-backend`, `dev-frontend`
+  - `run`, `serve` (Tailscale HTTPS), `test`, `lint`, `fmt`, `migrate`, `migrate-new`, `build-frontend`
 - **Deployment**: Dockerfile + docker-compose.yml using the same `uv run` entrypoint as local dev.
 - **Testing**: pytest with in-memory SQLite, FastAPI TestClient.
 

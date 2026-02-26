@@ -9,6 +9,34 @@ from app.schemas import EntryCreate, EntryOut, EntryRevisionOut, EntryUpdate
 router = APIRouter(prefix="/entries", tags=["entries"])
 
 
+def _can_access_notebook(
+    db: Session,
+    user: User,
+    notebook_id: str,
+    level: str = "read",
+) -> Notebook:
+    notebook = db.query(Notebook).filter(Notebook.id == notebook_id).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    if notebook.owner_id == user.id or user.role == "admin":
+        return notebook
+
+    levels = {"read": 0, "write": 1, "admin": 2}
+    perm = (
+        db.query(Permission)
+        .filter(
+            Permission.subject_id == user.id,
+            Permission.resource_type == "notebook",
+            Permission.resource_id == notebook_id,
+        )
+        .first()
+    )
+    if not perm or levels.get(perm.access_level, -1) < levels[level]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    return notebook
+
+
 def _can_access_entry(db: Session, user: User, entry_id: str, level: str = "read") -> Entry:
     entry = db.query(Entry).filter(Entry.id == entry_id).first()
     if not entry:
@@ -46,24 +74,7 @@ def create_entry(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    # Check write access to the notebook
-    notebook = db.query(Notebook).filter(Notebook.id == body.notebook_id).first()
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Notebook not found")
-
-    if notebook.owner_id != user.id and user.role != "admin":
-        perm = (
-            db.query(Permission)
-            .filter(
-                Permission.subject_id == user.id,
-                Permission.resource_type == "notebook",
-                Permission.resource_id == notebook.id,
-                Permission.access_level.in_(["write", "admin"]),
-            )
-            .first()
-        )
-        if not perm:
-            raise HTTPException(status_code=403, detail="No write access to this notebook")
+    _can_access_notebook(db, user, body.notebook_id, level="write")
 
     entry = Entry(
         notebook_id=body.notebook_id,
@@ -76,6 +87,21 @@ def create_entry(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+@router.get("/notebook/{notebook_id}", response_model=list[EntryOut])
+def list_entries_for_notebook(
+    notebook_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _can_access_notebook(db, user, notebook_id, level="read")
+    return (
+        db.query(Entry)
+        .filter(Entry.notebook_id == notebook_id)
+        .order_by(Entry.updated_at.desc())
+        .all()
+    )
 
 
 @router.get("/{entry_id}", response_model=EntryOut)
@@ -95,6 +121,10 @@ def update_entry(
     user: User = Depends(get_current_user),
 ):
     entry = _can_access_entry(db, user, entry_id, level="write")
+
+    # If moving entry to another notebook, require write access there too.
+    if body.notebook_id and body.notebook_id != entry.notebook_id:
+        _can_access_notebook(db, user, body.notebook_id, level="write")
 
     # Save revision before updating
     revision = EntryRevision(

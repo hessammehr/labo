@@ -65,6 +65,7 @@ class EntryCreate(BaseModel):
 
 
 class EntryUpdate(BaseModel):
+    notebook_id: str | None = None
     title: str | None = None
     content_blocks: list[dict] | None = None
     tags: list[str] | None = None
