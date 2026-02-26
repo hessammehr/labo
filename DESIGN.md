@@ -43,16 +43,15 @@ This document outlines the design for an Electronic Lab Notebook (ELN) system. T
 - Efficient streaming for large files (Excel/CSV).
 
 ## 6. System Architecture (High Level)
-- **Frontend**: Web app with block-based editor and attachment manager.
-- **Backend**: REST API with services for:
-  - User management & auth
+- **Frontend**: React web app with BlockNote block-based editor and attachment manager.
+- **Backend**: Python/FastAPI REST API with services for:
+  - User management & auth (JWT + bcrypt)
   - Notebook & entry management
   - Attachment storage & streaming
   - Export pipeline
 - **Storage**:
-  - Database (SQLite to start; migrate to PostgreSQL as needed) for metadata, content structure, permissions.
+  - SQLite database (migrate to PostgreSQL as needed) for metadata, content structure, permissions. Managed via SQLAlchemy ORM with Alembic migrations.
   - Local filesystem for binary attachments (abstract storage layer to support S3-compatible in future).
-  - Optional cache (Redis) for session and export job status.
 
 ## 7. Data Model (Conceptual)
 ### Entities
@@ -108,21 +107,25 @@ Block-based structure for rich text (JSON):
 
 ## 12. API Design (Outline)
 ### Authentication
+- `POST /auth/register`
 - `POST /auth/login`
-- `POST /auth/logout`
-- `POST /auth/reset`
+- `GET /auth/me`
 
 ### Notebooks
 - `GET /notebooks` (list)
 - `POST /notebooks` (create)
 - `GET /notebooks/{id}`
+- `PATCH /notebooks/{id}` (update)
+- `DELETE /notebooks/{id}`
 - `GET /notebooks/{id}/export` (md/json)
 
 ### Entries
 - `GET /entries/{id}` (json)
 - `GET /entries/{id}/markdown`
+- `GET /entries/{id}/revisions`
 - `POST /entries` (create)
-- `PUT /entries/{id}` (update)
+- `PUT /entries/{id}` (update, creates revision)
+- `DELETE /entries/{id}`
 - `POST /entries/{id}/export` (docx/latex)
 
 ### Attachments
@@ -130,23 +133,32 @@ Block-based structure for rich text (JSON):
 - `GET /attachments/{id}` (download)
 - `GET /attachments/{id}/stream?format=arrow|parquet|csv` (tabular data streaming for excel/csv)
 
+### Permissions
+- `POST /permissions` (grant/upsert)
+- `DELETE /permissions/{id}` (revoke)
+- `GET /permissions/resource/{type}/{id}` (list for a resource)
+
 ## 13. Export Pipeline
 - Markdown export: block rendering to MD.
 - ZIP export: Markdown + attachments, preserving structure.
 - DOCX/LaTeX: use conversion libraries (Pandoc or custom exporters).
-- Large exports use asynchronous jobs.
 
 ## 14. Security & Compliance
 - Enforce RBAC with notebook/entry-level permissions.
-- Encryption at rest (attachments) and in transit (TLS).
+- Stateless JWT authentication; HTTPS via Tailscale serve.
 - Audit logs for edit history and access.
 - Immutable revision history for compliance and auditability.
 
 ## 15. Scalability & Performance
-- CDN for attachment delivery.
 - Streaming endpoints for large files.
 - Pagination for notebook/entry listings.
-- Background processing for exports.
 
-## 16. Open Questions
+## 16. Tooling & Dev Workflow
+- **Package management**: `uv` exclusively — no pip, no manual venv. `uv run` for project commands, `uvx` for standalone tools.
+- **Database migrations**: Alembic (auto-generates migrations by diffing SQLAlchemy models against the DB).
+- **Makefile targets**: `dev`, `run`, `serve` (Tailscale HTTPS), `test`, `lint`, `fmt`, `migrate`, `migrate-new`.
+- **Deployment**: Dockerfile + docker-compose.yml using the same `uv run` entrypoint as local dev.
+- **Testing**: pytest with in-memory SQLite, FastAPI TestClient.
+
+## 17. Open Questions
 - None identified (revise as requirements evolve).

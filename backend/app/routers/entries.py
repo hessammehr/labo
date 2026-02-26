@@ -1,0 +1,138 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.core.deps import get_current_user
+from app.models import Entry, EntryRevision, Notebook, Permission, User
+from app.schemas import EntryCreate, EntryOut, EntryRevisionOut, EntryUpdate
+
+router = APIRouter(prefix="/entries", tags=["entries"])
+
+
+def _can_access_entry(db: Session, user: User, entry_id: str, level: str = "read") -> Entry:
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+
+    notebook = db.query(Notebook).filter(Notebook.id == entry.notebook_id).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    if notebook.owner_id == user.id or user.role == "admin":
+        return entry
+
+    levels = {"read": 0, "write": 1, "admin": 2}
+
+    # Check entry-level permission first, then notebook-level
+    for res_type, res_id in [("entry", entry.id), ("notebook", notebook.id)]:
+        perm = (
+            db.query(Permission)
+            .filter(
+                Permission.subject_id == user.id,
+                Permission.resource_type == res_type,
+                Permission.resource_id == res_id,
+            )
+            .first()
+        )
+        if perm and levels.get(perm.access_level, -1) >= levels[level]:
+            return entry
+
+    raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+
+@router.post("/", response_model=EntryOut, status_code=status.HTTP_201_CREATED)
+def create_entry(
+    body: EntryCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    # Check write access to the notebook
+    notebook = db.query(Notebook).filter(Notebook.id == body.notebook_id).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+
+    if notebook.owner_id != user.id and user.role != "admin":
+        perm = (
+            db.query(Permission)
+            .filter(
+                Permission.subject_id == user.id,
+                Permission.resource_type == "notebook",
+                Permission.resource_id == notebook.id,
+                Permission.access_level.in_(["write", "admin"]),
+            )
+            .first()
+        )
+        if not perm:
+            raise HTTPException(status_code=403, detail="No write access to this notebook")
+
+    entry = Entry(
+        notebook_id=body.notebook_id,
+        author_id=user.id,
+        title=body.title,
+        content_blocks=body.content_blocks,
+        tags=body.tags,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.get("/{entry_id}", response_model=EntryOut)
+def get_entry(
+    entry_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return _can_access_entry(db, user, entry_id)
+
+
+@router.put("/{entry_id}", response_model=EntryOut)
+def update_entry(
+    entry_id: str,
+    body: EntryUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    entry = _can_access_entry(db, user, entry_id, level="write")
+
+    # Save revision before updating
+    revision = EntryRevision(
+        entry_id=entry.id,
+        author_id=user.id,
+        content_blocks=entry.content_blocks,
+        change_summary=body.change_summary,
+    )
+    db.add(revision)
+
+    for field, value in body.model_dump(exclude_unset=True, exclude={"change_summary"}).items():
+        setattr(entry, field, value)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.delete("/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_entry(
+    entry_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    entry = _can_access_entry(db, user, entry_id, level="admin")
+    db.delete(entry)
+    db.commit()
+
+
+@router.get("/{entry_id}/revisions", response_model=list[EntryRevisionOut])
+def list_revisions(
+    entry_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    _can_access_entry(db, user, entry_id)
+    return (
+        db.query(EntryRevision)
+        .filter(EntryRevision.entry_id == entry_id)
+        .order_by(EntryRevision.created_at.desc())
+        .all()
+    )
