@@ -144,16 +144,19 @@ def update_entry(
     if body.notebook_id and body.notebook_id != entry.notebook_id:
         _can_access_notebook(db, user, body.notebook_id, level="write")
 
-    # Save revision before updating
-    revision = EntryRevision(
-        entry_id=entry.id,
-        author_id=user.id,
-        content_blocks=entry.content_blocks,
-        change_summary=body.change_summary,
-    )
-    db.add(revision)
+    # Only create a revision on explicit checkpoint saves.
+    if body.checkpoint and body.content_blocks is not None:
+        revision = EntryRevision(
+            entry_id=entry.id,
+            author_id=user.id,
+            content_blocks=entry.content_blocks,
+            change_summary=body.change_summary,
+        )
+        db.add(revision)
 
-    for field, value in body.model_dump(exclude_unset=True, exclude={"change_summary"}).items():
+    for field, value in body.model_dump(
+        exclude_unset=True, exclude={"change_summary", "checkpoint"}
+    ).items():
         setattr(entry, field, value)
     db.commit()
     db.refresh(entry)
@@ -169,6 +172,38 @@ def delete_entry(
     entry = _can_access_entry(db, user, entry_id, level="admin")
     db.delete(entry)
     db.commit()
+
+
+@router.post("/{entry_id}/revisions/{revision_id}/restore", response_model=EntryOut)
+def restore_revision(
+    entry_id: str,
+    revision_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    entry = _can_access_entry(db, user, entry_id, level="write")
+
+    revision = (
+        db.query(EntryRevision)
+        .filter(EntryRevision.id == revision_id, EntryRevision.entry_id == entry_id)
+        .first()
+    )
+    if not revision:
+        raise HTTPException(status_code=404, detail="Revision not found")
+
+    # Checkpoint the current state before restoring so the user can undo.
+    checkpoint = EntryRevision(
+        entry_id=entry.id,
+        author_id=user.id,
+        content_blocks=entry.content_blocks,
+        change_summary="Before restore",
+    )
+    db.add(checkpoint)
+
+    entry.content_blocks = revision.content_blocks
+    db.commit()
+    db.refresh(entry)
+    return entry
 
 
 @router.get("/{entry_id}/revisions", response_model=list[EntryRevisionOut])

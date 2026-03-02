@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 
 import { EntryEditorForm } from "../components/EntryEditorForm";
+import { RevisionsPanel } from "../components/RevisionsPanel";
 import { api } from "../lib/api";
 import type { Entry, Notebook } from "../lib/types";
 
@@ -52,6 +53,7 @@ type RenameState =
 export function WorkspacePage() {
   const queryClient = useQueryClient();
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
+  const [editorGeneration, setEditorGeneration] = useState(0);
   const [expandedNotebookIds, setExpandedNotebookIds] = useState<Record<string, boolean>>({});
   const [creatingNotebookName, setCreatingNotebookName] = useState("");
   const [creatingEntryNotebookId, setCreatingEntryNotebookId] = useState<string | null>(null);
@@ -63,7 +65,14 @@ export function WorkspacePage() {
 
   const [leftPaneWidth, setLeftPaneWidth] = useState(320);
   const [rightPaneWidth, setRightPaneWidth] = useState(280);
-  const dragState = useRef<{ side: "left" | "right"; startX: number; startWidth: number } | null>(null);
+  const [revisionsPaneHeight, setRevisionsPaneHeight] = useState(200);
+  const dragState = useRef<{
+    side: "left" | "right" | "revisions";
+    startX: number;
+    startY: number;
+    startWidth: number;
+    startHeight: number;
+  } | null>(null);
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
@@ -71,9 +80,12 @@ export function WorkspacePage() {
       if (dragState.current.side === "left") {
         const next = dragState.current.startWidth + (event.clientX - dragState.current.startX);
         setLeftPaneWidth(Math.max(220, Math.min(520, next)));
-      } else {
+      } else if (dragState.current.side === "right") {
         const next = dragState.current.startWidth - (event.clientX - dragState.current.startX);
         setRightPaneWidth(Math.max(220, Math.min(520, next)));
+      } else {
+        const next = dragState.current.startHeight - (event.clientY - dragState.current.startY);
+        setRevisionsPaneHeight(Math.max(80, Math.min(500, next)));
       }
     };
 
@@ -173,7 +185,6 @@ export function WorkspacePage() {
     mutationFn: async ({ entryId, title }: { entryId: string; title: string }) => {
       await api.put(`/entries/${entryId}`, {
         title,
-        change_summary: "Renamed in tree",
       });
     },
     onSuccess: refreshTree,
@@ -183,7 +194,6 @@ export function WorkspacePage() {
     mutationFn: async ({ entryId, notebookId }: { entryId: string; notebookId: string }) => {
       await api.put(`/entries/${entryId}`, {
         notebook_id: notebookId,
-        change_summary: "Moved in tree",
       });
     },
     onSuccess: async () => {
@@ -204,14 +214,24 @@ export function WorkspacePage() {
       id: string;
       title: string;
       content_blocks: Array<Record<string, unknown>>;
+      checkpoint: boolean;
     }) => {
       await api.put(`/entries/${payload.id}`, {
         title: payload.title,
         content_blocks: payload.content_blocks,
-        change_summary: "Edited in workspace",
+        checkpoint: payload.checkpoint,
+        change_summary: payload.checkpoint ? "Saved in workspace" : "",
       });
+      return payload.checkpoint;
     },
-    onSuccess: refreshTree,
+    onSuccess: async (wasCheckpoint) => {
+      // Always refresh entry data so the revisions panel sees updated diffs.
+      await queryClient.invalidateQueries({ queryKey: ["entries"] });
+      if (wasCheckpoint) {
+        await queryClient.invalidateQueries({ queryKey: ["notebooks"] });
+        await queryClient.invalidateQueries({ queryKey: ["revisions"] });
+      }
+    },
   });
 
   const orderedNotebooks = notebooksQuery.data ?? [];
@@ -276,7 +296,9 @@ export function WorkspacePage() {
         }
       }}
     >
-      <aside className="overflow-y-auto border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm dark:border-slate-800 dark:bg-slate-900">
+      <aside className="flex flex-col border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm">
+        {/* --- Explorer tree (top) --- */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
           <span>Explorer</span>
           <div className="flex items-center gap-1">
@@ -484,18 +506,39 @@ export function WorkspacePage() {
           })}
         </div>
 
+        </div>{/* end explorer scroll area */}
+
+        {/* --- Horizontal splitter --- */}
+        <div
+          className="h-px shrink-0 cursor-row-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
+          onMouseDown={(event) => {
+            dragState.current = {
+              side: "revisions",
+              startX: event.clientX,
+              startY: event.clientY,
+              startWidth: 0,
+              startHeight: revisionsPaneHeight,
+            };
+          }}
+        />
+
+        {/* --- Revisions panel (bottom) --- */}
+        <div className="shrink-0 overflow-hidden" style={{ height: revisionsPaneHeight }}>
+          <RevisionsPanel entry={selectedEntry} onRestore={() => setEditorGeneration((n) => n + 1)} />
+        </div>
       </aside>
 
       <div
         className="cursor-col-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
         onMouseDown={(event) => {
-          dragState.current = { side: "left", startX: event.clientX, startWidth: leftPaneWidth };
+          dragState.current = { side: "left", startX: event.clientX, startY: event.clientY, startWidth: leftPaneWidth, startHeight: 0 };
         }}
       />
 
       <section className="min-h-0 overflow-hidden bg-white dark:bg-slate-900">
         {selectedEntry ? (
           <EntryEditorForm
+            key={`${selectedEntry.id}-${editorGeneration}`}
             initialTitle={selectedEntry.title}
             initialContent={selectedEntry.content_blocks}
             isSaving={saveEntry.isPending}
@@ -504,6 +547,7 @@ export function WorkspacePage() {
                 id: selectedEntry.id,
                 title: payload.title,
                 content_blocks: payload.content_blocks,
+                checkpoint: payload.checkpoint,
               });
             }}
           />
@@ -517,7 +561,7 @@ export function WorkspacePage() {
       <div
         className="cursor-col-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
         onMouseDown={(event) => {
-          dragState.current = { side: "right", startX: event.clientX, startWidth: rightPaneWidth };
+          dragState.current = { side: "right", startX: event.clientX, startY: event.clientY, startWidth: rightPaneWidth, startHeight: 0 };
         }}
       />
 

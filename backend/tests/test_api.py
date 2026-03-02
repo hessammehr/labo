@@ -129,16 +129,77 @@ class TestEntries:
         entry = resp.json()
         entry_id = entry["id"]
 
-        # Update → creates revision
+        # Auto-save (no checkpoint) → no revision
         resp = client.put(
             f"/entries/{entry_id}",
-            json={"title": "Exp 1 (v2)", "change_summary": "updated title"},
+            json={"content_blocks": [{"type": "text", "text": "hello v2"}]},
+            headers=h,
+        )
+        assert resp.status_code == 200
+
+        resp = client.get(f"/entries/{entry_id}/revisions", headers=h)
+        assert len(resp.json()) == 0
+
+        # Title-only update → no revision even with checkpoint
+        resp = client.put(
+            f"/entries/{entry_id}",
+            json={"title": "Exp 1 (v2)", "checkpoint": True},
             headers=h,
         )
         assert resp.json()["title"] == "Exp 1 (v2)"
 
-        # Check revisions
+        resp = client.get(f"/entries/{entry_id}/revisions", headers=h)
+        assert len(resp.json()) == 0
+
+        # Checkpoint save with content → creates revision
+        resp = client.put(
+            f"/entries/{entry_id}",
+            json={
+                "content_blocks": [{"type": "text", "text": "hello v3"}],
+                "checkpoint": True,
+                "change_summary": "manual save",
+            },
+            headers=h,
+        )
+        assert resp.status_code == 200
+
         resp = client.get(f"/entries/{entry_id}/revisions", headers=h)
         revisions = resp.json()
         assert len(revisions) == 1
-        assert revisions[0]["change_summary"] == "updated title"
+        assert revisions[0]["change_summary"] == "manual save"
+        # Revision stores the state *before* the checkpoint
+        assert revisions[0]["content_blocks"] == [{"type": "text", "text": "hello v2"}]
+
+    def test_restore_revision(self, client):
+        _register(client)
+        token = _login(client)
+        h = _auth(token)
+
+        nb = client.post("/notebooks/", json={"title": "NB"}, headers=h).json()
+
+        entry = client.post(
+            "/entries/",
+            json={"notebook_id": nb["id"], "title": "E", "content_blocks": [{"type": "text", "text": "v1"}]},
+            headers=h,
+        ).json()
+        entry_id = entry["id"]
+
+        # Checkpoint save → creates revision with v1
+        client.put(
+            f"/entries/{entry_id}",
+            json={"content_blocks": [{"type": "text", "text": "v2"}], "checkpoint": True},
+            headers=h,
+        )
+
+        revisions = client.get(f"/entries/{entry_id}/revisions", headers=h).json()
+        assert len(revisions) == 1
+        rev_id = revisions[0]["id"]
+
+        # Restore revision (v1)
+        resp = client.post(f"/entries/{entry_id}/revisions/{rev_id}/restore", headers=h)
+        assert resp.status_code == 200
+        assert resp.json()["content_blocks"] == [{"type": "text", "text": "v1"}]
+
+        # Should have created an undo checkpoint
+        revisions = client.get(f"/entries/{entry_id}/revisions", headers=h).json()
+        assert len(revisions) == 2

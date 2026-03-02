@@ -70,6 +70,7 @@ class EntryUpdate(BaseModel):
     content_blocks: list[dict] | None = None
     tags: list[str] | None = None
     change_summary: str = ""
+    checkpoint: bool = False
 
 
 class EntryOut(BaseModel):
