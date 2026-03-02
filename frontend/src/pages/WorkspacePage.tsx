@@ -10,6 +10,7 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import {
   ChevronDown,
   ChevronRight,
+  Download,
   FilePlus2,
   FileText,
   Folder,
@@ -589,6 +590,26 @@ export function WorkspacePage() {
                 }}
               >
                 <Pencil size={14} /> Rename
+              </button>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={async () => {
+                  setContextMenu(null);
+                  const resp = await api.get(`/entries/${contextMenu.entryId}/markdown`, {
+                    responseType: "blob",
+                  });
+                  const disposition = resp.headers["content-disposition"] ?? "";
+                  const match = disposition.match(/filename="(.+)"/);
+                  const filename = match ? match[1] : "entry.md";
+                  const url = URL.createObjectURL(resp.data as Blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = filename;
+                  a.click();
+                  URL.revokeObjectURL(url);
+                }}
+              >
+                <Download size={14} /> Export as Markdown
               </button>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"

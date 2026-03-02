@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import Entry, EntryRevision, Notebook, Permission, User
 from app.schemas import EntryCreate, EntryOut, EntryRevisionOut, EntryUpdate
+from app.services.markdown import blocks_to_markdown
 
 router = APIRouter(prefix="/entries", tags=["entries"])
 
@@ -111,6 +113,22 @@ def get_entry(
     user: User = Depends(get_current_user),
 ):
     return _can_access_entry(db, user, entry_id)
+
+
+@router.get("/{entry_id}/markdown")
+def get_entry_markdown(
+    entry_id: str,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    entry = _can_access_entry(db, user, entry_id)
+    md = blocks_to_markdown(entry.content_blocks or [], title=entry.title)
+    filename = entry.title.replace(" ", "_") + ".md"
+    return PlainTextResponse(
+        content=md,
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.put("/{entry_id}", response_model=EntryOut)
