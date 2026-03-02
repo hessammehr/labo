@@ -6,8 +6,8 @@ export function AppShell() {
   const { user, logout } = useAuth();
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b bg-white dark:border-slate-800 dark:bg-slate-900">
+    <div className="h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <header className="shrink-0 border-b bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between px-4 py-3">
           <Link to="/" className="text-lg font-semibold">
             Labo
@@ -23,7 +23,7 @@ export function AppShell() {
           </div>
         </div>
       </header>
-      <main className="px-4 py-4">
+      <main className="min-h-0 flex-1 overflow-hidden">
         <Outlet />
       </main>
     </div>

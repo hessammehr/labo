@@ -266,7 +266,7 @@ export function WorkspacePage() {
 
   return (
     <div
-      className="grid h-[calc(100vh-72px)] bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+      className="grid h-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
       style={{ gridTemplateColumns: `${leftPaneWidth}px 1px minmax(0,1fr) 1px ${rightPaneWidth}px` }}
       onClick={() => setContextMenu(null)}
       onContextMenu={(event) => {
@@ -492,7 +492,7 @@ export function WorkspacePage() {
         }}
       />
 
-      <section className="overflow-y-auto bg-white dark:bg-slate-900">
+      <section className="min-h-0 overflow-hidden bg-white dark:bg-slate-900">
         {selectedEntry ? (
           <EntryEditorForm
             initialTitle={selectedEntry.title}

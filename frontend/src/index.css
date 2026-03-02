@@ -17,3 +17,10 @@ body {
     color: #e2e8f0;
   }
 }
+
+/* Keep BlockNote surface visually merged with the editor pane */
+.bn-container,
+.bn-editor,
+.bn-inline-content {
+  background: inherit !important;
+}
