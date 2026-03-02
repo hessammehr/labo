@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 
 import { EntryEditorForm } from "../components/EntryEditorForm";
-import { RevisionsPanel } from "../components/RevisionsPanel";
+import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
 import { api } from "../lib/api";
 import type { Entry, Notebook } from "../lib/types";
 
@@ -54,6 +54,7 @@ export function WorkspacePage() {
   const queryClient = useQueryClient();
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [editorGeneration, setEditorGeneration] = useState(0);
+  const [previewRevision, setPreviewRevision] = useState<Revision | null>(null);
   const [expandedNotebookIds, setExpandedNotebookIds] = useState<Record<string, boolean>>({});
   const [creatingNotebookName, setCreatingNotebookName] = useState("");
   const [creatingEntryNotebookId, setCreatingEntryNotebookId] = useState<string | null>(null);
@@ -133,6 +134,15 @@ export function WorkspacePage() {
   const selectedEntry = useMemo(() => {
     return allEntries.find((entry) => entry.id === selectedEntryId) ?? allEntries[0] ?? null;
   }, [allEntries, selectedEntryId]);
+
+  // Clear revision preview when switching entries.
+  const prevEntryIdRef = useRef(selectedEntryId);
+  useEffect(() => {
+    if (prevEntryIdRef.current !== selectedEntryId) {
+      setPreviewRevision(null);
+      prevEntryIdRef.current = selectedEntryId;
+    }
+  }, [selectedEntryId]);
 
   const refreshTree = async () => {
     await queryClient.invalidateQueries({ queryKey: ["notebooks"] });
@@ -524,7 +534,15 @@ export function WorkspacePage() {
 
         {/* --- Revisions panel (bottom) --- */}
         <div className="shrink-0 overflow-hidden" style={{ height: revisionsPaneHeight }}>
-          <RevisionsPanel entry={selectedEntry} onRestore={() => setEditorGeneration((n) => n + 1)} />
+          <RevisionsPanel
+            entry={selectedEntry}
+            activePreviewId={previewRevision?.id ?? null}
+            onRestore={() => {
+              setPreviewRevision(null);
+              setEditorGeneration((n) => n + 1);
+            }}
+            onPreview={setPreviewRevision}
+          />
         </div>
       </aside>
 
@@ -537,20 +555,49 @@ export function WorkspacePage() {
 
       <section className="min-h-0 overflow-hidden bg-white dark:bg-slate-900">
         {selectedEntry ? (
-          <EntryEditorForm
-            key={`${selectedEntry.id}-${editorGeneration}`}
-            initialTitle={selectedEntry.title}
-            initialContent={selectedEntry.content_blocks}
-            isSaving={saveEntry.isPending}
-            onSave={async (payload) => {
-              await saveEntry.mutateAsync({
-                id: selectedEntry.id,
-                title: payload.title,
-                content_blocks: payload.content_blocks,
-                checkpoint: payload.checkpoint,
-              });
-            }}
-          />
+          previewRevision ? (
+            <EntryEditorForm
+              key={`${selectedEntry.id}-preview-${previewRevision.id}`}
+              initialTitle={selectedEntry.title}
+              initialContent={previewRevision.content_blocks}
+              readOnly
+              banner={
+                <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-4 py-1.5 text-xs text-amber-800 dark:text-amber-200">
+                  <span>
+                    Viewing revision from{" "}
+                    {new Date(previewRevision.created_at).toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                  <button
+                    className="font-medium underline hover:no-underline"
+                    onClick={() => setPreviewRevision(null)}
+                  >
+                    Back to current
+                  </button>
+                </div>
+              }
+              onSave={async () => {}}
+            />
+          ) : (
+            <EntryEditorForm
+              key={`${selectedEntry.id}-${editorGeneration}`}
+              initialTitle={selectedEntry.title}
+              initialContent={selectedEntry.content_blocks}
+              isSaving={saveEntry.isPending}
+              onSave={async (payload) => {
+                await saveEntry.mutateAsync({
+                  id: selectedEntry.id,
+                  title: payload.title,
+                  content_blocks: payload.content_blocks,
+                  checkpoint: payload.checkpoint,
+                });
+              }}
+            />
+          )
         ) : (
           <div className="flex h-full items-center justify-center text-sm text-slate-500 dark:text-slate-400">
             Create an entry from Explorer to begin.

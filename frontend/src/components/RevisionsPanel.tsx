@@ -6,7 +6,7 @@ import { api } from "../lib/api";
 import { computeDiff, type DiffSummary } from "../lib/diffBlocks";
 import type { Entry } from "../lib/types";
 
-type Revision = {
+export type Revision = {
   id: number;
   entry_id: string;
   author_id: string;
@@ -15,9 +15,19 @@ type Revision = {
   created_at: string;
 };
 
-type RevisionRow = Revision & { diff: DiffSummary };
+type RevisionRow = Revision & { diff: DiffSummary; afterContent: Array<Record<string, unknown>> };
 
-export function RevisionsPanel({ entry, onRestore }: { entry: Entry | null; onRestore?: () => void }) {
+export function RevisionsPanel({
+  entry,
+  onRestore,
+  onPreview,
+  activePreviewId,
+}: {
+  entry: Entry | null;
+  onRestore?: () => void;
+  onPreview?: (revision: Revision | null) => void;
+  activePreviewId?: number | null;
+}) {
   const queryClient = useQueryClient();
 
   const revisionsQuery = useQuery({
@@ -54,7 +64,7 @@ export function RevisionsPanel({ entry, onRestore }: { entry: Entry | null; onRe
         i === 0
           ? (entry.content_blocks as Record<string, unknown>[])
           : revisions[i - 1].content_blocks;
-      return { ...rev, diff: computeDiff(before, after) };
+      return { ...rev, diff: computeDiff(before, after), afterContent: after };
     });
   }, [entry, revisions]);
 
@@ -84,10 +94,18 @@ export function RevisionsPanel({ entry, onRestore }: { entry: Entry | null; onRe
           </div>
         )}
 
-        {rows.map((rev) => (
+        {rows.map((rev, i) => {
+          const isActive = activePreviewId === rev.id;
+          const isNewest = i === 0;
+          return (
           <div
             key={rev.id}
-            className="group border-b border-slate-100 dark:border-slate-800 px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+            className={`group cursor-pointer border-b border-slate-100 dark:border-slate-800 px-3 py-1.5 ${
+              isActive
+                ? "bg-blue-50 dark:bg-blue-900/30"
+                : "hover:bg-slate-50 dark:hover:bg-slate-800/60"
+            }`}
+            onClick={() => onPreview?.(isActive || isNewest ? null : { ...rev, content_blocks: rev.afterContent })}
           >
             <div className="flex items-center justify-between">
               <div className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -101,7 +119,8 @@ export function RevisionsPanel({ entry, onRestore }: { entry: Entry | null; onRe
               <button
                 title="Restore this revision"
                 className="opacity-0 p-0.5 text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-slate-100 group-hover:opacity-100"
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   restore.mutate({ entryId: entry.id, revisionId: rev.id });
                 }}
               >
@@ -131,7 +150,8 @@ export function RevisionsPanel({ entry, onRestore }: { entry: Entry | null; onRe
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

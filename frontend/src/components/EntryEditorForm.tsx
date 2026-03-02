@@ -14,6 +14,8 @@ type EntryEditorFormProps = {
   initialTitle?: string;
   initialContent?: Array<Record<string, unknown>>;
   isSaving?: boolean;
+  readOnly?: boolean;
+  banner?: React.ReactNode;
   onSave: (payload: SavePayload) => Promise<void>;
 };
 
@@ -23,6 +25,8 @@ export function EntryEditorForm({
   initialTitle = "",
   initialContent,
   isSaving = false,
+  readOnly = false,
+  banner,
   onSave,
 }: EntryEditorFormProps) {
   const [title, setTitle] = useState(initialTitle);
@@ -48,14 +52,14 @@ export function EntryEditorForm({
     [],
   );
 
-  // --- save helpers ---------------------------------------------------
+  // --- save helpers (disabled in readOnly mode) -----------------------
 
   const savingRef = useRef(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const save = useCallback(
     (checkpoint: boolean) => {
-      if (savingRef.current) return;
+      if (readOnly || savingRef.current) return;
       savingRef.current = true;
       onSave({
         title: titleRef.current,
@@ -65,43 +69,55 @@ export function EntryEditorForm({
         savingRef.current = false;
       });
     },
-    [editor, onSave],
+    [editor, onSave, readOnly],
   );
 
   const scheduleAutoSave = useCallback(() => {
+    if (readOnly) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(() => save(false), AUTO_SAVE_DELAY);
-  }, [save]);
+  }, [save, readOnly]);
 
-  // Cancel pending auto-save on unmount
+  // Keep a stable ref to the latest save so the unmount cleanup can call it.
+  const saveRef = useRef(save);
+  saveRef.current = save;
+
+  // Flush pending auto-save on unmount (e.g. when switching to revision preview).
   useEffect(() => {
     return () => {
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+      if (autoSaveTimer.current) {
+        clearTimeout(autoSaveTimer.current);
+        autoSaveTimer.current = null;
+        saveRef.current(false);
+      }
     };
   }, []);
 
   // --- auto-save on editor content change ----------------------------
 
   useEffect(() => {
+    if (readOnly) return;
     const unsubscribe = editor.onChange(() => scheduleAutoSave());
     return unsubscribe;
-  }, [editor, scheduleAutoSave]);
+  }, [editor, scheduleAutoSave, readOnly]);
 
   // --- auto-save on title change -------------------------------------
 
   const isFirstTitle = useRef(true);
   useEffect(() => {
+    if (readOnly) return;
     // Skip the initial render / reset from prop sync
     if (isFirstTitle.current) {
       isFirstTitle.current = false;
       return;
     }
     scheduleAutoSave();
-  }, [title, scheduleAutoSave]);
+  }, [title, scheduleAutoSave, readOnly]);
 
   // --- Cmd+S / Ctrl+S = checkpoint save ------------------------------
 
   useEffect(() => {
+    if (readOnly) return;
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
@@ -111,49 +127,55 @@ export function EntryEditorForm({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [save]);
+  }, [save, readOnly]);
 
   return (
     <div className="flex h-full flex-col">
+      {banner}
       <div className="shrink-0 flex items-center gap-3 border-b border-slate-200 px-4 py-2 dark:border-slate-800">
         <input
-          className="w-full border border-slate-300 px-2 py-1 text-lg font-semibold outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
+          className="w-full border border-slate-300 px-2 py-1 text-lg font-semibold outline-none dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 disabled:opacity-60"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Entry title"
+          disabled={readOnly}
         />
-        <button
-          onClick={() => {
-            if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
-            save(true);
-          }}
-          disabled={isSaving}
-          className="border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
-        >
-          {isSaving ? "Saving..." : "Save"}
-        </button>
+        {!readOnly && (
+          <button
+            onClick={() => {
+              if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+              save(true);
+            }}
+            disabled={isSaving}
+            className="border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
+          >
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <BlockNoteView editor={editor} slashMenu={false}>
-          <SuggestionMenuController
-            triggerCharacter="/"
-            floatingUIOptions={{
-              useFloatingOptions: {
-                placement: "bottom-start",
-                middleware: [
-                  offset(10),
-                  flip({ fallbackPlacements: ["top-start"], padding: 10 }),
-                  shift({ padding: 10 }),
-                  size({
-                    apply({ elements, availableHeight }) {
-                      elements.floating.style.maxHeight = `${Math.max(0, availableHeight)}px`;
-                    },
-                    padding: 10,
-                  }),
-                ],
-              },
-            }}
-          />
+        <BlockNoteView editor={editor} editable={!readOnly} slashMenu={false}>
+          {!readOnly && (
+            <SuggestionMenuController
+              triggerCharacter="/"
+              floatingUIOptions={{
+                useFloatingOptions: {
+                  placement: "bottom-start",
+                  middleware: [
+                    offset(10),
+                    flip({ fallbackPlacements: ["top-start"], padding: 10 }),
+                    shift({ padding: 10 }),
+                    size({
+                      apply({ elements, availableHeight }) {
+                        elements.floating.style.maxHeight = `${Math.max(0, availableHeight)}px`;
+                      },
+                      padding: 10,
+                    }),
+                  ],
+                },
+              }}
+            />
+          )}
         </BlockNoteView>
       </div>
     </div>
