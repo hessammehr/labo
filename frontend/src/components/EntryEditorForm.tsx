@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { PartialBlock } from "@blocknote/core";
-import { useCreateBlockNote } from "@blocknote/react";
+import { useCreateBlockNote, SuggestionMenuController } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
+import { flip, offset, shift, size } from "@floating-ui/react";
 
 type EntryEditorFormProps = {
   initialTitle?: string;
@@ -55,7 +56,27 @@ export function EntryEditorForm({
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <BlockNoteView editor={editor} />
+        <BlockNoteView editor={editor} slashMenu={false}>
+          <SuggestionMenuController
+            triggerCharacter="/"
+            floatingUIOptions={{
+              useFloatingOptions: {
+                placement: "bottom-start",
+                middleware: [
+                  offset(10),
+                  flip({ fallbackPlacements: ["top-start"], padding: 10 }),
+                  shift({ padding: 10 }),
+                  size({
+                    apply({ elements, availableHeight }) {
+                      elements.floating.style.maxHeight = `${Math.max(0, availableHeight)}px`;
+                    },
+                    padding: 10,
+                  }),
+                ],
+              },
+            }}
+          />
+        </BlockNoteView>
       </div>
     </div>
   );
