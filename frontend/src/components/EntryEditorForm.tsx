@@ -57,11 +57,15 @@ export function EntryEditorForm({
   const savingRef = useRef(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Stable ref avoids save → scheduleAutoSave → effect cascade on parent re-renders.
+  const onSaveRef = useRef(onSave);
+  onSaveRef.current = onSave;
+
   const save = useCallback(
     (checkpoint: boolean) => {
       if (readOnly || savingRef.current) return;
       savingRef.current = true;
-      onSave({
+      onSaveRef.current({
         title: titleRef.current,
         content_blocks: editor.document as unknown as Array<Record<string, unknown>>,
         checkpoint,
@@ -69,7 +73,7 @@ export function EntryEditorForm({
         savingRef.current = false;
       });
     },
-    [editor, onSave, readOnly],
+    [editor, readOnly],
   );
 
   const scheduleAutoSave = useCallback(() => {
