@@ -48,7 +48,7 @@ This document outlines the design for an Electronic Lab Notebook (ELN) system. T
   - Center editor pane (BlockNote)
   - Right utility pane (reserved for future features)
 - **Backend**: Python/FastAPI REST API with services for:
-  - User management & auth (JWT + bcrypt)
+  - User management & auth (session cookies + API keys, bcrypt)
   - Notebook & entry management
   - Attachment storage & streaming
   - Export pipeline
@@ -156,7 +156,11 @@ Block-based structure for rich text (JSON):
 
 ## 14. Security & Compliance
 - Enforce RBAC with notebook/entry-level permissions.
-- Stateless JWT authentication; HTTPS via Tailscale serve.
+- Dual authentication:
+  - **Session cookies** (HttpOnly, SameSite) for browser-based UI — set on login, cleared on logout. No client-side token management.
+  - **API keys** (`X-API-Key` header) for instruments, scripts, and programmatic access — long-lived, revocable, shown once on creation.
+- Both resolve to the same user principal; all endpoints work with either.
+- HTTPS via Tailscale serve.
 - Audit logs for edit history and access.
 - Immutable revision history for compliance and auditability.
 
@@ -175,5 +179,13 @@ Block-based structure for rich text (JSON):
 - **Deployment**: Dockerfile + docker-compose.yml using the same `uv run` entrypoint as local dev.
 - **Testing**: pytest with in-memory SQLite, FastAPI TestClient.
 
-## 17. Open Questions
-- None identified (revise as requirements evolve).
+## 17. Future: Data Capture & Live Analysis
+
+- **Data capture**: Instruments push data (spectra, sensor readings, etc.) into entries/attachments via the API using long-lived API keys.
+- **Live analysis pane**: The right pane will host a marimo-style reactive Python environment (Pyodide or server-side kernel) with access to notebooks, entries, and attachments for in-place data analysis.
+- **Feedback loop**: capture → store → analyse → embed results back into entries.
+
+## 18. Open Questions
+- Marimo integration: embedded iframe, custom reactive runtime, or Pyodide?
+- Data capture: REST only, or also WebSocket/SSE for streaming ingest?
+- Analysis pane auth: service account or inherited user session?

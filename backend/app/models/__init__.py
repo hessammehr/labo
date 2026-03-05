@@ -121,3 +121,28 @@ class AuditLog(Base):
     timestamp = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     actor = relationship("User")
+
+
+class Session(Base):
+    __tablename__ = "sessions"
+
+    id = Column(String(64), primary_key=True)  # random token
+    user_id = Column(String(32), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+
+    user = relationship("User")
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+
+    id = Column(String(32), primary_key=True, default=_new_id)
+    user_id = Column(String(32), ForeignKey("users.id"), nullable=False)
+    key_hash = Column(String(255), nullable=False)
+    key_prefix = Column(String(8), nullable=False)  # first 8 chars for identification
+    name = Column(String(255), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User")

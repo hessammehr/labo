@@ -1,43 +1,21 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.security import decode_access_token
 from app.models import Attachment, Entry, Notebook, Permission, User
 from app.schemas import AttachmentOut
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
 
-_bearer = HTTPBearer(auto_error=False)
 
-
-class OptionalBearer:
-    """Dependency that returns a User if a Bearer token is present, else None."""
-    async def __call__(
-        self,
-        request: Request,
-        creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
-        db: Session = Depends(get_db),
-    ) -> User | None:
-        if creds is None:
-            return None
-        try:
-            payload = decode_access_token(creds.credentials)
-            return db.query(User).filter(User.id == payload["sub"]).first()
-        except Exception:
-            return None
-
-MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
-
-
-def _can_access_entry(db: Session, user: User, entry_id: str, level: str = "read") -> Entry:
+def _can_access_entry(db: Session, user: User, entry_id: str, level: str = "read"):
+    """Check that user can access the entry at the given level."""
     entry = db.query(Entry).filter(Entry.id == entry_id).first()
     if not entry:
         raise HTTPException(status_code=404, detail="Entry not found")
@@ -47,58 +25,54 @@ def _can_access_entry(db: Session, user: User, entry_id: str, level: str = "read
         raise HTTPException(status_code=404, detail="Notebook not found")
 
     if notebook.owner_id == user.id or user.role == "admin":
-        return entry
+        return
+
+    perm = (
+        db.query(Permission)
+        .filter(
+            Permission.subject_id == user.id,
+            Permission.resource_type == "notebook",
+            Permission.resource_id == notebook.id,
+        )
+        .first()
+    )
 
     levels = {"read": 0, "write": 1, "admin": 2}
-
-    for res_type, res_id in [("entry", entry.id), ("notebook", notebook.id)]:
-        perm = (
-            db.query(Permission)
-            .filter(
-                Permission.subject_id == user.id,
-                Permission.resource_type == res_type,
-                Permission.resource_id == res_id,
-            )
-            .first()
-        )
-        if perm and levels.get(perm.access_level, -1) >= levels[level]:
-            return entry
-
-    raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if not perm or levels.get(perm.access_level, -1) < levels.get(level, 99):
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
 @router.post("/", response_model=AttachmentOut, status_code=status.HTTP_201_CREATED)
-async def upload_attachment(
+def upload_attachment(
     entry_id: str = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Upload a file attachment to an entry."""
+    """Upload an attachment to an entry."""
     _can_access_entry(db, user, entry_id, level="write")
 
-    content = await file.read()
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds {MAX_UPLOAD_BYTES // (1024 * 1024)}MB limit",
-        )
+    content = file.file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
 
-    filename = file.filename or "unnamed"
-    file_id = uuid.uuid4().hex[:12]
-    dest_dir = settings.storage_dir / entry_id
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    storage_path = dest_dir / f"{file_id}_{filename}"
-    storage_path.write_bytes(content)
-
-    # Classify attachment type
     mime = file.content_type or "application/octet-stream"
+    filename = file.filename or "unnamed"
+
+    # Classify type
     if mime.startswith("image/"):
         att_type = "image"
     elif filename.lower().endswith((".xlsx", ".xls", ".csv")):
         att_type = "excel"
     else:
         att_type = "file"
+
+    # Store file on disk
+    entry_dir = settings.storage_dir / entry_id
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    prefix = uuid.uuid4().hex[:12]
+    storage_path = entry_dir / f"{prefix}_{filename}"
+    storage_path.write_bytes(content)
 
     attachment = Attachment(
         entry_id=entry_id,
@@ -118,26 +92,14 @@ async def upload_attachment(
 def download_attachment(
     attachment_id: str,
     db: Session = Depends(get_db),
-    token: str | None = None,
-    user: User | None = Depends(OptionalBearer()),
+    user: User = Depends(get_current_user),
 ):
-    """Download an attachment file. Auth via Bearer header or ?token= query param."""
-    # Resolve user from Bearer header or query-param token
-    resolved_user = user
-    if resolved_user is None and token:
-        try:
-            payload = decode_access_token(token)
-            resolved_user = db.query(User).filter(User.id == payload["sub"]).first()
-        except Exception:
-            pass
-    if resolved_user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
-
+    """Download an attachment file."""
     attachment = db.query(Attachment).filter(Attachment.id == attachment_id).first()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    _can_access_entry(db, user=resolved_user, entry_id=attachment.entry_id, level="read")
+    _can_access_entry(db, user, attachment.entry_id, level="read")
 
     from pathlib import Path
 

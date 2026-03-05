@@ -6,10 +6,11 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "sqlite:///./labo.db"
 
-    # JWT
-    jwt_secret: str = "change-me-in-production-use-32bytes!"
-    jwt_algorithm: str = "HS256"
-    jwt_expiry_minutes: int = 60 * 24  # 24 hours
+    # Session
+    session_cookie_name: str = "labo_session"
+    session_expiry_hours: int = 24 * 30  # 30 days
+    cookie_secure: bool = False  # set True when behind HTTPS
+    cookie_samesite: str = "lax"
 
     # Storage
     storage_dir: Path = Path("./storage")

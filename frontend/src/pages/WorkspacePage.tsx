@@ -23,7 +23,7 @@ import {
 
 import { EntryEditorForm, type AttachmentDropData } from "../components/EntryEditorForm";
 import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
-import { api, getToken } from "../lib/api";
+import { api } from "../lib/api";
 import type { Attachment, Entry, Notebook } from "../lib/types";
 
 type ContextMenuState =
@@ -823,7 +823,6 @@ export function WorkspacePage() {
                 // Normal drop: reference the existing attachment (no move/copy)
                 return `/api/attachments/${drop.attachmentId}`;
               }}
-              authToken={getToken() ?? undefined}
             />
           )
         ) : (

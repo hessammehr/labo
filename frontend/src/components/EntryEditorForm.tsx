@@ -26,7 +26,6 @@ type EntryEditorFormProps = {
   onSave: (payload: SavePayload) => Promise<void>;
   uploadFile?: (file: File) => Promise<string>;
   onAttachmentDrop?: (data: AttachmentDropData) => Promise<string>;
-  authToken?: string;
 };
 
 const AUTO_SAVE_DELAY = 2000; // ms
@@ -40,7 +39,6 @@ export function EntryEditorForm({
   onSave,
   uploadFile,
   onAttachmentDrop,
-  authToken,
 }: EntryEditorFormProps) {
   const [title, setTitle] = useState(initialTitle);
   const titleRef = useRef(title);
@@ -66,17 +64,12 @@ export function EntryEditorForm({
   const onAttachmentDropRef = useRef(onAttachmentDrop);
   onAttachmentDropRef.current = onAttachmentDrop;
 
-  const authTokenRef = useRef(authToken);
-  authTokenRef.current = authToken;
-
   const editor = useCreateBlockNote(
     {
       ...(initialContentRef.current ? { initialContent: initialContentRef.current } : {}),
       uploadFile: uploadFileRef.current
         ? async (file: File) => {
-            const url = await uploadFileRef.current!(file);
-            const t = authTokenRef.current;
-            return t ? `${url}?token=${encodeURIComponent(t)}` : url;
+            return uploadFileRef.current!(file);
           }
         : undefined,
     },
@@ -208,11 +201,9 @@ export function EntryEditorForm({
               mimeType,
               altKey: e.altKey,
             });
-            const t = authTokenRef.current;
-            const authedUrl = t ? `${url}?token=${encodeURIComponent(t)}` : url;
             const block: PartialBlock = mimeType.startsWith("image/")
-              ? { type: "image", props: { url: authedUrl, name: filename } }
-              : { type: "file", props: { url: authedUrl, name: filename } };
+              ? { type: "image", props: { url, name: filename } }
+              : { type: "file", props: { url, name: filename } };
             editor.insertBlocks([block], editor.document[editor.document.length - 1], "after");
             return;
           }
