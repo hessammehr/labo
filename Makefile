@@ -2,6 +2,7 @@
 
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
+UVICORN := uv run python -m uvicorn
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -14,13 +15,13 @@ dev: ## Run backend + frontend dev servers
 	wait
 
 dev-backend: ## Run backend dev server with reload
-	cd $(BACKEND_DIR) && uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --reload --host 127.0.0.1 --port 8000
 
 dev-frontend: ## Run frontend dev server
 	cd $(FRONTEND_DIR) && bun dev --host 127.0.0.1 --port 5173
 
 run: ## Run backend server (production)
-	cd $(BACKEND_DIR) && uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --host 127.0.0.1 --port 8000
 
 build-frontend: ## Build frontend static bundle
 	cd $(FRONTEND_DIR) && bun run build
