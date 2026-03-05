@@ -15,6 +15,7 @@ import {
   FileText,
   Folder,
   FolderPlus,
+  Paperclip,
   Pencil,
   Plus,
   Trash2,
@@ -23,7 +24,7 @@ import {
 import { EntryEditorForm } from "../components/EntryEditorForm";
 import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
 import { api } from "../lib/api";
-import type { Entry, Notebook } from "../lib/types";
+import type { Attachment, Entry, Notebook } from "../lib/types";
 
 type ContextMenuState =
   | {
@@ -43,6 +44,13 @@ type ContextMenuState =
       kind: "entry";
       entryId: string;
       notebookId: string;
+    }
+  | {
+      x: number;
+      y: number;
+      kind: "attachment";
+      attachmentId: string;
+      filename: string;
     };
 
 type RenameState =
@@ -63,6 +71,10 @@ export function WorkspacePage() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [draggingEntry, setDraggingEntry] = useState<{ entryId: string; fromNotebookId: string } | null>(null);
   const [dropNotebookId, setDropNotebookId] = useState<string | null>(null);
+  const [fileDropNotebookId, setFileDropNotebookId] = useState<string | null>(null);
+  const [fileDropEntryId, setFileDropEntryId] = useState<string | null>(null);
+  const [draggingAttachment, setDraggingAttachment] = useState<{ attachmentId: string; fromEntryId: string } | null>(null);
+  const [attDropEntryId, setAttDropEntryId] = useState<string | null>(null);
 
   const [leftPaneWidth, setLeftPaneWidth] = useState(320);
   const [rightPaneWidth, setRightPaneWidth] = useState(280);
@@ -130,6 +142,24 @@ export function WorkspacePage() {
   }, [notebooksQuery.data, entriesQueries]);
 
   const allEntries = useMemo(() => Object.values(entriesByNotebook).flat(), [entriesByNotebook]);
+
+  const attachmentsQueries = useQueries({
+    queries: allEntries.map((entry) => ({
+      queryKey: ["attachments", "entry", entry.id],
+      queryFn: async () => {
+        const { data } = await api.get<Attachment[]>(`/attachments/entry/${entry.id}`);
+        return data;
+      },
+    })),
+  });
+
+  const attachmentsByEntry = useMemo(() => {
+    const result: Record<string, Attachment[]> = {};
+    allEntries.forEach((entry, idx) => {
+      result[entry.id] = attachmentsQueries[idx]?.data ?? [];
+    });
+    return result;
+  }, [allEntries, attachmentsQueries]);
 
   const selectedEntry = useMemo(() => {
     return allEntries.find((entry) => entry.id === selectedEntryId) ?? allEntries[0] ?? null;
@@ -212,6 +242,65 @@ export function WorkspacePage() {
     },
   });
 
+  const importMarkdown = useMutation({
+    mutationFn: async ({ notebookId, filename, markdown }: { notebookId: string; filename: string; markdown: string }) => {
+      const { data } = await api.post<Entry>("/entries/import", {
+        notebook_id: notebookId,
+        filename,
+        markdown,
+      });
+      return data;
+    },
+    onSuccess: async (entry) => {
+      await refreshTree();
+      setSelectedEntryId(entry.id);
+      setExpandedNotebookIds((prev) => ({ ...prev, [entry.notebook_id]: true }));
+    },
+  });
+
+  const uploadAttachment = useMutation({
+    mutationFn: async ({ entryId, file }: { entryId: string; file: File }) => {
+      const form = new FormData();
+      form.append("entry_id", entryId);
+      form.append("file", file);
+      const { data } = await api.post("/attachments/", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return data;
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["attachments"] });
+    },
+  });
+
+  const moveAttachment = useMutation({
+    mutationFn: async ({ attachmentId, entryId }: { attachmentId: string; entryId: string }) => {
+      await api.patch(`/attachments/${attachmentId}`, { entry_id: entryId });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["attachments"] });
+    },
+  });
+
+  const deleteAttachment = useMutation({
+    mutationFn: async (attachmentId: string) => {
+      await api.delete(`/attachments/${attachmentId}`);
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["attachments"] });
+    },
+  });
+
+  const downloadAttachment = async (attachmentId: string, filename: string) => {
+    const resp = await api.get(`/attachments/${attachmentId}`, { responseType: "blob" });
+    const url = URL.createObjectURL(resp.data as Blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const deleteEntry = useMutation({
     mutationFn: async (entryId: string) => {
       await api.delete(`/entries/${entryId}`);
@@ -289,10 +378,44 @@ export function WorkspacePage() {
 
   const onNotebookDrop = async (event: ReactDragEvent, notebookId: string) => {
     event.preventDefault();
+
+    // External file drop: import .md files as entries
+    const files = Array.from(event.dataTransfer.files);
+    const mdFiles = files.filter((f) => f.name.endsWith(".md") || f.name.endsWith(".markdown"));
+    if (mdFiles.length > 0) {
+      setFileDropNotebookId(null);
+      for (const file of mdFiles) {
+        const markdown = await file.text();
+        await importMarkdown.mutateAsync({ notebookId, filename: file.name, markdown });
+      }
+      return;
+    }
+
+    // Internal entry move
     if (!draggingEntry) return;
     setDropNotebookId(null);
     if (draggingEntry.fromNotebookId === notebookId) return;
     await moveEntry.mutateAsync({ entryId: draggingEntry.entryId, notebookId });
+  };
+
+  const onEntryFileDrop = async (event: ReactDragEvent, entryId: string) => {
+    event.preventDefault();
+    setFileDropEntryId(null);
+    const files = Array.from(event.dataTransfer.files);
+    const nonMdFiles = files.filter((f) => !f.name.endsWith(".md") && !f.name.endsWith(".markdown"));
+    for (const file of nonMdFiles) {
+      await uploadAttachment.mutateAsync({ entryId, file });
+    }
+  };
+
+  const hasExternalFiles = (event: ReactDragEvent) => {
+    return event.dataTransfer.types.includes("Files");
+  };
+
+  const hasMarkdownFiles = (event: ReactDragEvent) => {
+    // During dragover we can check types but not filenames in most browsers,
+    // so we allow the drop and filter in the handler.
+    return event.dataTransfer.types.includes("Files");
   };
 
   return (
@@ -368,7 +491,7 @@ export function WorkspacePage() {
               <div key={notebook.id}>
                 <div
                   className={`group flex items-center gap-1 px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800 ${
-                    dropNotebookId === notebook.id ? "bg-blue-100 dark:bg-blue-900/40" : ""
+                    dropNotebookId === notebook.id || fileDropNotebookId === notebook.id ? "bg-blue-100 dark:bg-blue-900/40" : ""
                   }`}
                   onContextMenu={(event) =>
                     openContextMenu(event, {
@@ -379,12 +502,18 @@ export function WorkspacePage() {
                     })
                   }
                   onDragOver={(event) => {
+                    if (hasExternalFiles(event)) {
+                      event.preventDefault();
+                      setFileDropNotebookId(notebook.id);
+                      return;
+                    }
                     if (!draggingEntry || draggingEntry.fromNotebookId === notebook.id) return;
                     event.preventDefault();
                     setDropNotebookId(notebook.id);
                   }}
                   onDragLeave={() => {
                     if (dropNotebookId === notebook.id) setDropNotebookId(null);
+                    if (fileDropNotebookId === notebook.id) setFileDropNotebookId(null);
                   }}
                   onDrop={(event) => {
                     void onNotebookDrop(event, notebook.id);
@@ -465,11 +594,13 @@ export function WorkspacePage() {
                     )}
 
                     {entries.map((entry) => (
+                      <div key={entry.id}>
                       <div
-                        key={entry.id}
                         draggable
                         className={`group flex items-center gap-2 py-1 pr-2 ${
-                          selectedEntry?.id === entry.id ? "bg-blue-100 dark:bg-blue-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                          fileDropEntryId === entry.id || attDropEntryId === entry.id
+                            ? "bg-green-100 dark:bg-green-900/40"
+                            : selectedEntry?.id === entry.id ? "bg-blue-100 dark:bg-blue-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-800"
                         }`}
                         onContextMenu={(event) =>
                           openContextMenu(event, {
@@ -484,6 +615,32 @@ export function WorkspacePage() {
                         onDragEnd={() => {
                           setDraggingEntry(null);
                           setDropNotebookId(null);
+                        }}
+                        onDragOver={(event) => {
+                          if (hasExternalFiles(event)) {
+                            event.preventDefault();
+                            setFileDropEntryId(entry.id);
+                            return;
+                          }
+                          if (draggingAttachment && draggingAttachment.fromEntryId !== entry.id) {
+                            event.preventDefault();
+                            setAttDropEntryId(entry.id);
+                          }
+                        }}
+                        onDragLeave={() => {
+                          if (fileDropEntryId === entry.id) setFileDropEntryId(null);
+                          if (attDropEntryId === entry.id) setAttDropEntryId(null);
+                        }}
+                        onDrop={(event) => {
+                          if (hasExternalFiles(event)) {
+                            void onEntryFileDrop(event, entry.id);
+                            return;
+                          }
+                          if (draggingAttachment && draggingAttachment.fromEntryId !== entry.id) {
+                            event.preventDefault();
+                            setAttDropEntryId(null);
+                            void moveAttachment.mutateAsync({ attachmentId: draggingAttachment.attachmentId, entryId: entry.id });
+                          }
                         }}
                       >
                         <FileText size={14} className="text-slate-500 dark:text-slate-400" />
@@ -507,6 +664,44 @@ export function WorkspacePage() {
                             {entry.title}
                           </button>
                         )}
+                      </div>
+
+                      {/* Attachments nested under entry */}
+                      {(attachmentsByEntry[entry.id] ?? []).length > 0 && (
+                        <div className="pl-6">
+                          {(attachmentsByEntry[entry.id] ?? []).map((att) => (
+                            <div
+                              key={att.id}
+                              draggable
+                              className="flex items-center gap-2 py-0.5 pr-2 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-default"
+                              title={`${att.filename} (${(att.size / 1024).toFixed(1)} KB)`}
+                              onDoubleClick={() => void downloadAttachment(att.id, att.filename)}
+                              onContextMenu={(event) =>
+                                openContextMenu(event, {
+                                  x: event.clientX,
+                                  y: event.clientY,
+                                  kind: "attachment",
+                                  attachmentId: att.id,
+                                  filename: att.filename,
+                                })
+                              }
+                              onDragStart={(event) => {
+                                event.dataTransfer.effectAllowed = "move";
+                                event.dataTransfer.setData("text/attachment-id", att.id);
+                                event.stopPropagation();
+                                setDraggingAttachment({ attachmentId: att.id, fromEntryId: entry.id });
+                              }}
+                              onDragEnd={() => {
+                                setDraggingAttachment(null);
+                                setAttDropEntryId(null);
+                              }}
+                            >
+                              <Paperclip size={12} className="shrink-0" />
+                              <span className="truncate">{att.filename}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       </div>
                     ))}
                   </div>
@@ -707,6 +902,29 @@ export function WorkspacePage() {
                 onClick={async () => {
                   setContextMenu(null);
                   await deleteEntry.mutateAsync(contextMenu.entryId);
+                }}
+              >
+                <Trash2 size={14} /> Delete
+              </button>
+            </>
+          )}
+
+          {contextMenu.kind === "attachment" && (
+            <>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setContextMenu(null);
+                  void downloadAttachment(contextMenu.attachmentId, contextMenu.filename);
+                }}
+              >
+                <Download size={14} /> Download
+              </button>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                onClick={async () => {
+                  setContextMenu(null);
+                  await deleteAttachment.mutateAsync(contextMenu.attachmentId);
                 }}
               >
                 <Trash2 size={14} /> Delete

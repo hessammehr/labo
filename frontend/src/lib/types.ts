@@ -17,3 +17,14 @@ export type Entry = {
   created_at: string;
   updated_at: string;
 };
+
+export type Attachment = {
+  id: string;
+  entry_id: string;
+  type: "image" | "excel" | "file";
+  filename: string;
+  mime_type: string;
+  size: number;
+  storage_uri: string;
+  created_at: string;
+};

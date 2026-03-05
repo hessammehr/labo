@@ -64,6 +64,12 @@ class EntryCreate(BaseModel):
     tags: list[str] = []
 
 
+class EntryImport(BaseModel):
+    notebook_id: str
+    filename: str
+    markdown: str
+
+
 class EntryUpdate(BaseModel):
     notebook_id: str | None = None
     title: str | None = None
@@ -112,6 +118,21 @@ class PermissionOut(BaseModel):
     resource_type: str
     resource_id: str
     access_level: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Attachments ---
+
+class AttachmentOut(BaseModel):
+    id: str
+    entry_id: str
+    type: str
+    filename: str
+    mime_type: str
+    size: int
+    storage_uri: str
     created_at: datetime
 
     model_config = {"from_attributes": True}

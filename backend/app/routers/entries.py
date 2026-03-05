@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import Entry, EntryRevision, Notebook, Permission, User
-from app.schemas import EntryCreate, EntryOut, EntryRevisionOut, EntryUpdate
-from app.services.markdown import blocks_to_markdown
+from app.schemas import EntryCreate, EntryImport, EntryOut, EntryRevisionOut, EntryUpdate
+from app.services.markdown import blocks_to_markdown, markdown_to_blocks
 
 router = APIRouter(prefix="/entries", tags=["entries"])
 
@@ -84,6 +84,32 @@ def create_entry(
         title=body.title,
         content_blocks=body.content_blocks,
         tags=body.tags,
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+    return entry
+
+
+@router.post("/import", response_model=EntryOut, status_code=status.HTTP_201_CREATED)
+def import_markdown_entry(
+    body: EntryImport,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Import a Markdown file as a new entry."""
+    _can_access_notebook(db, user, body.notebook_id, level="write")
+
+    blocks, detected_title = markdown_to_blocks(body.markdown)
+    # Use detected # heading, fall back to filename sans extension
+    title = detected_title or body.filename.removesuffix(".md").removesuffix(".markdown") or "Imported Entry"
+
+    entry = Entry(
+        notebook_id=body.notebook_id,
+        author_id=user.id,
+        title=title,
+        content_blocks=blocks,
+        tags=[],
     )
     db.add(entry)
     db.commit()
