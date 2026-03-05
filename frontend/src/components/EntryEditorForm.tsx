@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PartialBlock } from "@blocknote/core";
+import type { Block, PartialBlock } from "@blocknote/core";
 import { useCreateBlockNote, SuggestionMenuController } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { flip, offset, shift, size } from "@floating-ui/react";
@@ -10,6 +10,13 @@ type SavePayload = {
   checkpoint: boolean;
 };
 
+export type AttachmentDropData = {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  altKey: boolean;
+};
+
 type EntryEditorFormProps = {
   initialTitle?: string;
   initialContent?: Array<Record<string, unknown>>;
@@ -17,6 +24,9 @@ type EntryEditorFormProps = {
   readOnly?: boolean;
   banner?: React.ReactNode;
   onSave: (payload: SavePayload) => Promise<void>;
+  uploadFile?: (file: File) => Promise<string>;
+  onAttachmentDrop?: (data: AttachmentDropData) => Promise<string>;
+  authToken?: string;
 };
 
 const AUTO_SAVE_DELAY = 2000; // ms
@@ -28,6 +38,9 @@ export function EntryEditorForm({
   readOnly = false,
   banner,
   onSave,
+  uploadFile,
+  onAttachmentDrop,
+  authToken,
 }: EntryEditorFormProps) {
   const [title, setTitle] = useState(initialTitle);
   const titleRef = useRef(title);
@@ -46,8 +59,27 @@ export function EntryEditorForm({
   // server refetches (e.g. after auto-save) must not recreate the editor.
   const initialContentRef = useRef(safeInitialContent);
 
+  // Stable ref so the upload callback doesn't recreate the editor.
+  const uploadFileRef = useRef(uploadFile);
+  uploadFileRef.current = uploadFile;
+
+  const onAttachmentDropRef = useRef(onAttachmentDrop);
+  onAttachmentDropRef.current = onAttachmentDrop;
+
+  const authTokenRef = useRef(authToken);
+  authTokenRef.current = authToken;
+
   const editor = useCreateBlockNote(
-    initialContentRef.current ? { initialContent: initialContentRef.current } : {},
+    {
+      ...(initialContentRef.current ? { initialContent: initialContentRef.current } : {}),
+      uploadFile: uploadFileRef.current
+        ? async (file: File) => {
+            const url = await uploadFileRef.current!(file);
+            const t = authTokenRef.current;
+            return t ? `${url}?token=${encodeURIComponent(t)}` : url;
+          }
+        : undefined,
+    },
     // Empty dep array: editor is created once; entry switches remount via key.
     [],
   );
@@ -157,7 +189,63 @@ export function EntryEditorForm({
           </button>
         )}
       </div>
-      <div className="min-h-0 flex-1 overflow-auto">
+      <div
+        className="min-h-0 flex-1 overflow-auto"
+        onDragOver={(e) => {
+          // Prevent browser default (open file) for all drag types over the editor
+          e.preventDefault();
+        }}
+        onDrop={async (e) => {
+          // --- Internal attachment drag from tree ---
+          const attachmentId = e.dataTransfer.getData("text/attachment-id");
+          if (attachmentId && onAttachmentDropRef.current) {
+            e.preventDefault();
+            const filename = e.dataTransfer.getData("text/attachment-filename");
+            const mimeType = e.dataTransfer.getData("text/attachment-mimetype");
+            const url = await onAttachmentDropRef.current({
+              attachmentId,
+              filename,
+              mimeType,
+              altKey: e.altKey,
+            });
+            const t = authTokenRef.current;
+            const authedUrl = t ? `${url}?token=${encodeURIComponent(t)}` : url;
+            const block: PartialBlock = mimeType.startsWith("image/")
+              ? { type: "image", props: { url: authedUrl, name: filename } }
+              : { type: "file", props: { url: authedUrl, name: filename } };
+            editor.insertBlocks([block], editor.document[editor.document.length - 1], "after");
+            return;
+          }
+
+          // --- .md file drop: parse and insert as blocks ---
+          const files = Array.from(e.dataTransfer.files);
+          const mdFiles = files.filter(
+            (f) => f.name.endsWith(".md") || f.name.endsWith(".markdown"),
+          );
+          if (mdFiles.length > 0) {
+            e.preventDefault();
+            for (const file of mdFiles) {
+              const text = await file.text();
+              // Parse markdown on the server
+              const { data } = await (await import("../lib/api")).api.post<{
+                blocks: Array<Record<string, unknown>>;
+                title: string | null;
+              }>("/entries/parse-markdown", { markdown: text });
+              const blocks = data.blocks as unknown as PartialBlock[];
+              if (blocks.length > 0) {
+                editor.insertBlocks(
+                  blocks,
+                  editor.document[editor.document.length - 1],
+                  "after",
+                );
+              }
+            }
+            return;
+          }
+
+          // Other files are handled by BlockNote's built-in uploadFile
+        }}
+      >
         <BlockNoteView editor={editor} editable={!readOnly} slashMenu={false}>
           {!readOnly && (
             <SuggestionMenuController

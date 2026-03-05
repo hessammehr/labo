@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -9,6 +10,15 @@ from app.schemas import EntryCreate, EntryImport, EntryOut, EntryRevisionOut, En
 from app.services.markdown import blocks_to_markdown, markdown_to_blocks
 
 router = APIRouter(prefix="/entries", tags=["entries"])
+
+
+class MarkdownParseRequest(BaseModel):
+    markdown: str
+
+
+class MarkdownParseResponse(BaseModel):
+    blocks: list[dict]
+    title: str | None
 
 
 def _can_access_notebook(
@@ -115,6 +125,16 @@ def import_markdown_entry(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+@router.post("/parse-markdown", response_model=MarkdownParseResponse)
+def parse_markdown(
+    body: MarkdownParseRequest,
+    _user: User = Depends(get_current_user),
+):
+    """Parse Markdown into BlockNote blocks without creating an entry."""
+    blocks, title = markdown_to_blocks(body.markdown)
+    return MarkdownParseResponse(blocks=blocks, title=title)
 
 
 @router.get("/notebook/{notebook_id}", response_model=list[EntryOut])

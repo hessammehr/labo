@@ -1,17 +1,38 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.security import decode_access_token
 from app.models import Attachment, Entry, Notebook, Permission, User
 from app.schemas import AttachmentOut
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
+
+_bearer = HTTPBearer(auto_error=False)
+
+
+class OptionalBearer:
+    """Dependency that returns a User if a Bearer token is present, else None."""
+    async def __call__(
+        self,
+        request: Request,
+        creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
+        db: Session = Depends(get_db),
+    ) -> User | None:
+        if creds is None:
+            return None
+        try:
+            payload = decode_access_token(creds.credentials)
+            return db.query(User).filter(User.id == payload["sub"]).first()
+        except Exception:
+            return None
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
@@ -97,14 +118,26 @@ async def upload_attachment(
 def download_attachment(
     attachment_id: str,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    token: str | None = None,
+    user: User | None = Depends(OptionalBearer()),
 ):
-    """Download an attachment file."""
+    """Download an attachment file. Auth via Bearer header or ?token= query param."""
+    # Resolve user from Bearer header or query-param token
+    resolved_user = user
+    if resolved_user is None and token:
+        try:
+            payload = decode_access_token(token)
+            resolved_user = db.query(User).filter(User.id == payload["sub"]).first()
+        except Exception:
+            pass
+    if resolved_user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+
     attachment = db.query(Attachment).filter(Attachment.id == attachment_id).first()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    _can_access_entry(db, user, attachment.entry_id, level="read")
+    _can_access_entry(db, user=resolved_user, entry_id=attachment.entry_id, level="read")
 
     from pathlib import Path
 

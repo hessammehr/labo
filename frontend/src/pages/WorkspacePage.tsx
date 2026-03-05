@@ -21,9 +21,9 @@ import {
   Trash2,
 } from "lucide-react";
 
-import { EntryEditorForm } from "../components/EntryEditorForm";
+import { EntryEditorForm, type AttachmentDropData } from "../components/EntryEditorForm";
 import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
-import { api } from "../lib/api";
+import { api, getToken } from "../lib/api";
 import type { Attachment, Entry, Notebook } from "../lib/types";
 
 type ContextMenuState =
@@ -688,6 +688,8 @@ export function WorkspacePage() {
                               onDragStart={(event) => {
                                 event.dataTransfer.effectAllowed = "move";
                                 event.dataTransfer.setData("text/attachment-id", att.id);
+                                event.dataTransfer.setData("text/attachment-filename", att.filename);
+                                event.dataTransfer.setData("text/attachment-mimetype", att.mime_type);
                                 event.stopPropagation();
                                 setDraggingAttachment({ attachmentId: att.id, fromEntryId: entry.id });
                               }}
@@ -791,6 +793,37 @@ export function WorkspacePage() {
                   checkpoint: payload.checkpoint,
                 });
               }}
+              uploadFile={async (file: File) => {
+                const form = new FormData();
+                form.append("entry_id", selectedEntry.id);
+                form.append("file", file);
+                const { data } = await api.post("/attachments/", form, {
+                  headers: { "Content-Type": "multipart/form-data" },
+                });
+                await queryClient.invalidateQueries({ queryKey: ["attachments"] });
+                return `/api/attachments/${data.id}`;
+              }}
+              onAttachmentDrop={async (drop: AttachmentDropData) => {
+                if (drop.altKey) {
+                  // Alt+drop: copy the attachment to the current entry
+                  const resp = await api.get(`/attachments/${drop.attachmentId}`, {
+                    responseType: "blob",
+                  });
+                  const blob = resp.data as Blob;
+                  const file = new File([blob], drop.filename, { type: drop.mimeType });
+                  const form = new FormData();
+                  form.append("entry_id", selectedEntry.id);
+                  form.append("file", file);
+                  const { data } = await api.post("/attachments/", form, {
+                    headers: { "Content-Type": "multipart/form-data" },
+                  });
+                  await queryClient.invalidateQueries({ queryKey: ["attachments"] });
+                  return `/api/attachments/${data.id}`;
+                }
+                // Normal drop: reference the existing attachment (no move/copy)
+                return `/api/attachments/${drop.attachmentId}`;
+              }}
+              authToken={getToken() ?? undefined}
             />
           )
         ) : (
