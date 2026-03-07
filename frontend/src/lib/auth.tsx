@@ -52,8 +52,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Ignore errors — we're logging out anyway
     }
-    queryClient.removeQueries({ queryKey: ["auth"] });
-    queryClient.clear();
+    // Immediately clear the user so ProtectedRoute redirects to /login,
+    // then wipe all other cached data.
+    queryClient.setQueryData(["auth", "me"], null);
+    queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== "auth" });
   };
 
   return (
