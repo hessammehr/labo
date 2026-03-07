@@ -41,11 +41,12 @@ class NotebookUpdate(BaseModel):
 
 class NotebookOut(BaseModel):
     id: str
-    owner_id: str
+    author_id: str
     title: str
     description: str
     created_at: datetime
     updated_at: datetime
+    sharing_level: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -83,6 +84,7 @@ class EntryOut(BaseModel):
     tags: list[str]
     created_at: datetime
     updated_at: datetime
+    sharing_level: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -114,6 +116,26 @@ class PermissionOut(BaseModel):
     resource_id: str
     access_level: str
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class PermissionDetail(BaseModel):
+    """Permission with resolved user info for the sharing modal."""
+    id: int
+    subject_id: str
+    subject_name: str
+    subject_email: str
+    resource_type: str
+    resource_id: str
+    access_level: str
+    created_at: datetime
+
+
+class UserSearchResult(BaseModel):
+    id: str
+    name: str
+    email: str
 
     model_config = {"from_attributes": True}
 

@@ -5,41 +5,14 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.access import require_access
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models import Attachment, Entry, Notebook, Permission, User
+from app.models import Attachment, Entry, User
 from app.schemas import AttachmentOut
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
-
-
-def _can_access_entry(db: Session, user: User, entry_id: str, level: str = "read"):
-    """Check that user can access the entry at the given level."""
-    entry = db.query(Entry).filter(Entry.id == entry_id).first()
-    if not entry:
-        raise HTTPException(status_code=404, detail="Entry not found")
-
-    notebook = db.query(Notebook).filter(Notebook.id == entry.notebook_id).first()
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Notebook not found")
-
-    if notebook.owner_id == user.id or user.role == "admin":
-        return
-
-    perm = (
-        db.query(Permission)
-        .filter(
-            Permission.subject_id == user.id,
-            Permission.resource_type == "notebook",
-            Permission.resource_id == notebook.id,
-        )
-        .first()
-    )
-
-    levels = {"read": 0, "write": 1, "admin": 2}
-    if not perm or levels.get(perm.access_level, -1) < levels.get(level, 99):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
 
 
 @router.post("/", response_model=AttachmentOut, status_code=status.HTTP_201_CREATED)
@@ -50,7 +23,10 @@ def upload_attachment(
     user: User = Depends(get_current_user),
 ):
     """Upload an attachment to an entry."""
-    _can_access_entry(db, user, entry_id, level="write")
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    require_access(db, user, "entry", entry_id, "write")
 
     content = file.file.read()
     if len(content) > 50 * 1024 * 1024:
@@ -99,7 +75,7 @@ def download_attachment(
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    _can_access_entry(db, user, attachment.entry_id, level="read")
+    require_access(db, user, "entry", attachment.entry_id, "read")
 
     from pathlib import Path
 
@@ -121,7 +97,7 @@ def list_attachments(
     user: User = Depends(get_current_user),
 ):
     """List all attachments for an entry."""
-    _can_access_entry(db, user, entry_id, level="read")
+    require_access(db, user, "entry", entry_id, "read")
     return db.query(Attachment).filter(Attachment.entry_id == entry_id).all()
 
 
@@ -136,7 +112,7 @@ def delete_attachment(
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    _can_access_entry(db, user, attachment.entry_id, level="write")
+    require_access(db, user, "entry", attachment.entry_id, "write")
 
     from pathlib import Path
 
@@ -165,8 +141,8 @@ def move_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     # Require write access on both source and destination entries
-    _can_access_entry(db, user, attachment.entry_id, level="write")
-    _can_access_entry(db, user, body.entry_id, level="write")
+    require_access(db, user, "entry", attachment.entry_id, "write")
+    require_access(db, user, "entry", body.entry_id, "write")
 
     attachment.entry_id = body.entry_id
     db.commit()

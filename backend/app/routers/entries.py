@@ -3,6 +3,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from app.core.access import highest_shared_level, require_access
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import Entry, EntryRevision, Notebook, Permission, User
@@ -21,72 +22,13 @@ class MarkdownParseResponse(BaseModel):
     title: str | None
 
 
-def _can_access_notebook(
-    db: Session,
-    user: User,
-    notebook_id: str,
-    level: str = "read",
-) -> Notebook:
-    notebook = db.query(Notebook).filter(Notebook.id == notebook_id).first()
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Notebook not found")
-
-    if notebook.owner_id == user.id or user.role == "admin":
-        return notebook
-
-    levels = {"read": 0, "write": 1, "admin": 2}
-    perm = (
-        db.query(Permission)
-        .filter(
-            Permission.subject_id == user.id,
-            Permission.resource_type == "notebook",
-            Permission.resource_id == notebook_id,
-        )
-        .first()
-    )
-    if not perm or levels.get(perm.access_level, -1) < levels[level]:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-    return notebook
-
-
-def _can_access_entry(db: Session, user: User, entry_id: str, level: str = "read") -> Entry:
-    entry = db.query(Entry).filter(Entry.id == entry_id).first()
-    if not entry:
-        raise HTTPException(status_code=404, detail="Entry not found")
-
-    notebook = db.query(Notebook).filter(Notebook.id == entry.notebook_id).first()
-    if not notebook:
-        raise HTTPException(status_code=404, detail="Notebook not found")
-
-    if notebook.owner_id == user.id or user.role == "admin":
-        return entry
-
-    levels = {"read": 0, "write": 1, "admin": 2}
-
-    # Check entry-level permission first, then notebook-level
-    for res_type, res_id in [("entry", entry.id), ("notebook", notebook.id)]:
-        perm = (
-            db.query(Permission)
-            .filter(
-                Permission.subject_id == user.id,
-                Permission.resource_type == res_type,
-                Permission.resource_id == res_id,
-            )
-            .first()
-        )
-        if perm and levels.get(perm.access_level, -1) >= levels[level]:
-            return entry
-
-    raise HTTPException(status_code=403, detail="Insufficient permissions")
-
-
 @router.post("/", response_model=EntryOut, status_code=status.HTTP_201_CREATED)
 def create_entry(
     body: EntryCreate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    _can_access_notebook(db, user, body.notebook_id, level="write")
+    require_access(db, user, "notebook", body.notebook_id, "write")
 
     entry = Entry(
         notebook_id=body.notebook_id,
@@ -108,10 +50,9 @@ def import_markdown_entry(
     user: User = Depends(get_current_user),
 ):
     """Import a Markdown file as a new entry."""
-    _can_access_notebook(db, user, body.notebook_id, level="write")
+    require_access(db, user, "notebook", body.notebook_id, "write")
 
     blocks, detected_title = markdown_to_blocks(body.markdown)
-    # Use detected # heading, fall back to filename sans extension
     title = detected_title or body.filename.removesuffix(".md").removesuffix(".markdown") or "Imported Entry"
 
     entry = Entry(
@@ -143,13 +84,20 @@ def list_entries_for_notebook(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    _can_access_notebook(db, user, notebook_id, level="read")
-    return (
+    require_access(db, user, "notebook", notebook_id, "read")
+    entries = (
         db.query(Entry)
         .filter(Entry.notebook_id == notebook_id)
         .order_by(Entry.updated_at.desc())
         .all()
     )
+
+    result = []
+    for entry in entries:
+        out = EntryOut.model_validate(entry)
+        out.sharing_level = highest_shared_level(db, "entry", entry.id)
+        result.append(out)
+    return result
 
 
 @router.get("/{entry_id}", response_model=EntryOut)
@@ -158,7 +106,11 @@ def get_entry(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return _can_access_entry(db, user, entry_id)
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    require_access(db, user, "entry", entry_id, "read")
+    return entry
 
 
 @router.get("/{entry_id}/markdown")
@@ -167,7 +119,10 @@ def get_entry_markdown(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    entry = _can_access_entry(db, user, entry_id)
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    require_access(db, user, "entry", entry_id, "read")
     md = blocks_to_markdown(entry.content_blocks or [], title=entry.title)
     filename = entry.title.replace(" ", "_") + ".md"
     return PlainTextResponse(
@@ -184,11 +139,14 @@ def update_entry(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    entry = _can_access_entry(db, user, entry_id, level="write")
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    require_access(db, user, "entry", entry_id, "write")
 
     # If moving entry to another notebook, require write access there too.
     if body.notebook_id and body.notebook_id != entry.notebook_id:
-        _can_access_notebook(db, user, body.notebook_id, level="write")
+        require_access(db, user, "notebook", body.notebook_id, "write")
 
     # Only create a revision on explicit checkpoint saves.
     if body.checkpoint and body.content_blocks is not None:
@@ -215,7 +173,17 @@ def delete_entry(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    entry = _can_access_entry(db, user, entry_id, level="admin")
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    require_access(db, user, "entry", entry_id, "owner")
+
+    # Clean up entry-level permissions
+    db.query(Permission).filter(
+        Permission.resource_type == "entry",
+        Permission.resource_id == entry_id,
+    ).delete(synchronize_session=False)
+
     db.delete(entry)
     db.commit()
 
@@ -227,7 +195,10 @@ def restore_revision(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    entry = _can_access_entry(db, user, entry_id, level="write")
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    require_access(db, user, "entry", entry_id, "write")
 
     revision = (
         db.query(EntryRevision)
@@ -258,7 +229,10 @@ def list_revisions(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    _can_access_entry(db, user, entry_id)
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    require_access(db, user, "entry", entry_id, "read")
     return (
         db.query(EntryRevision)
         .filter(EntryRevision.entry_id == entry_id)

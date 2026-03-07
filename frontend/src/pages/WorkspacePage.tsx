@@ -11,6 +11,7 @@ import {
   ChevronDown,
   ChevronRight,
   Download,
+  Eye,
   FilePlus2,
   FileText,
   Folder,
@@ -20,11 +21,15 @@ import {
   Paperclip,
   Pencil,
   Plus,
+  Share2,
+  Shield,
   Trash2,
+  User,
 } from "lucide-react";
 
 import { EntryEditorForm, type AttachmentDropData } from "../components/EntryEditorForm";
 import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
+import { ShareModal } from "../components/ShareModal";
 import { api } from "../lib/api";
 import type { Attachment, Entry, Notebook } from "../lib/types";
 
@@ -78,6 +83,11 @@ export function WorkspacePage() {
   const [draggingAttachment, setDraggingAttachment] = useState<{ attachmentId: string; fromEntryId: string } | null>(null);
   const [attDropEntryId, setAttDropEntryId] = useState<string | null>(null);
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
+  const [shareModal, setShareModal] = useState<{
+    resourceType: "notebook" | "entry";
+    resourceId: string;
+    resourceName: string;
+  } | null>(null);
 
   const [leftPaneWidth, setLeftPaneWidth] = useState(320);
   const [rightPaneWidth, setRightPaneWidth] = useState(280);
@@ -436,6 +446,13 @@ export function WorkspacePage() {
     return event.dataTransfer.types.includes("Files");
   };
 
+  const SharingIcon = ({ level }: { level: string | null }) => {
+    if (!level) return null;
+    if (level === "owner") return <Shield size={12} className="shrink-0 text-amber-500" title="Shared (co-owner)" />;
+    if (level === "write") return <Pencil size={12} className="shrink-0 text-blue-500" title="Shared (editor)" />;
+    return <Eye size={12} className="shrink-0 text-slate-400" title="Shared (viewer)" />;
+  };
+
   return (
     <div
       className="grid h-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
@@ -576,6 +593,8 @@ export function WorkspacePage() {
                     </button>
                   )}
 
+                  <SharingIcon level={notebook.sharing_level} />
+
                   <button
                     className="ml-auto hidden p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 group-hover:block"
                     title="New Entry"
@@ -682,6 +701,7 @@ export function WorkspacePage() {
                             {entry.title}
                           </button>
                         )}
+                        <SharingIcon level={entry.sharing_level} />
                       </div>
 
                       {/* Attachments nested under entry */}
@@ -970,6 +990,20 @@ export function WorkspacePage() {
                 onClick={() => {
                   const notebook = orderedNotebooks.find((n) => n.id === contextMenu.notebookId);
                   setContextMenu(null);
+                  setShareModal({
+                    resourceType: "notebook",
+                    resourceId: contextMenu.notebookId,
+                    resourceName: notebook?.title ?? "Notebook",
+                  });
+                }}
+              >
+                <Share2 size={14} /> Share…
+              </button>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  const notebook = orderedNotebooks.find((n) => n.id === contextMenu.notebookId);
+                  setContextMenu(null);
                   setRenameState({ kind: "notebook", id: contextMenu.notebookId, value: notebook?.title ?? "" });
                 }}
               >
@@ -989,6 +1023,19 @@ export function WorkspacePage() {
 
           {contextMenu.kind === "entry" && (
             <>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setContextMenu(null);
+                  setShareModal({
+                    resourceType: "entry",
+                    resourceId: contextMenu.entryId,
+                    resourceName: menuEntry?.title ?? "Entry",
+                  });
+                }}
+              >
+                <Share2 size={14} /> Share…
+              </button>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
@@ -1053,6 +1100,15 @@ export function WorkspacePage() {
             </>
           )}
         </div>
+      )}
+
+      {shareModal && (
+        <ShareModal
+          resourceType={shareModal.resourceType}
+          resourceId={shareModal.resourceId}
+          resourceName={shareModal.resourceName}
+          onClose={() => setShareModal(null)}
+        />
       )}
     </div>
   );

@@ -1,10 +1,11 @@
 export type Notebook = {
   id: string;
-  owner_id: string;
+  author_id: string;
   title: string;
   description: string;
   created_at: string;
   updated_at: string;
+  sharing_level: string | null;
 };
 
 export type Entry = {
@@ -16,6 +17,7 @@ export type Entry = {
   tags: string[];
   created_at: string;
   updated_at: string;
+  sharing_level: string | null;
 };
 
 export type Attachment = {
@@ -27,4 +29,21 @@ export type Attachment = {
   size: number;
   storage_uri: string;
   created_at: string;
+};
+
+export type PermissionDetail = {
+  id: number;
+  subject_id: string;
+  subject_name: string;
+  subject_email: string;
+  resource_type: string;
+  resource_id: string;
+  access_level: "read" | "write" | "owner";
+  created_at: string;
+};
+
+export type UserSearchResult = {
+  id: string;
+  name: string;
+  email: string;
 };

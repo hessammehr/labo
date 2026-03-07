@@ -26,20 +26,20 @@ class User(Base):
     status = Column(Enum("active", "disabled", name="user_status"), default="active", nullable=False)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
-    notebooks = relationship("Notebook", back_populates="owner")
+    notebooks = relationship("Notebook", back_populates="author")
 
 
 class Notebook(Base):
     __tablename__ = "notebooks"
 
     id = Column(String(32), primary_key=True, default=_new_id)
-    owner_id = Column(String(32), ForeignKey("users.id"), nullable=False)
+    author_id = Column(String(32), ForeignKey("users.id"), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, default="")
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
-    owner = relationship("User", back_populates="notebooks")
+    author = relationship("User", back_populates="notebooks")
     entries = relationship("Entry", back_populates="notebook", cascade="all, delete-orphan")
     permissions = relationship(
         "Permission",
@@ -103,7 +103,7 @@ class Permission(Base):
     subject_id = Column(String(32), ForeignKey("users.id"), nullable=False)
     resource_type = Column(Enum("notebook", "entry", name="resource_type"), nullable=False)
     resource_id = Column(String(32), nullable=False, index=True)
-    access_level = Column(Enum("read", "write", "admin", name="access_level"), nullable=False)
+    access_level = Column(Enum("read", "write", "owner", name="access_level"), nullable=False)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     subject = relationship("User")
