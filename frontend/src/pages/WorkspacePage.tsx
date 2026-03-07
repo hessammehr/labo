@@ -15,6 +15,8 @@ import {
   FileText,
   Folder,
   FolderPlus,
+  History,
+  Image,
   Paperclip,
   Pencil,
   Plus,
@@ -75,12 +77,16 @@ export function WorkspacePage() {
   const [fileDropEntryId, setFileDropEntryId] = useState<string | null>(null);
   const [draggingAttachment, setDraggingAttachment] = useState<{ attachmentId: string; fromEntryId: string } | null>(null);
   const [attDropEntryId, setAttDropEntryId] = useState<string | null>(null);
+  const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
 
   const [leftPaneWidth, setLeftPaneWidth] = useState(320);
   const [rightPaneWidth, setRightPaneWidth] = useState(280);
   const [revisionsPaneHeight, setRevisionsPaneHeight] = useState(200);
+  const [previewPaneHeight, setPreviewPaneHeight] = useState(200);
+  const [previewCollapsed, setPreviewCollapsed] = useState(false);
+  const [revisionsCollapsed, setRevisionsCollapsed] = useState(false);
   const dragState = useRef<{
-    side: "left" | "right" | "revisions";
+    side: "left" | "right" | "revisions" | "preview";
     startX: number;
     startY: number;
     startWidth: number;
@@ -96,9 +102,12 @@ export function WorkspacePage() {
       } else if (dragState.current.side === "right") {
         const next = dragState.current.startWidth - (event.clientX - dragState.current.startX);
         setRightPaneWidth(Math.max(220, Math.min(520, next)));
-      } else {
+      } else if (dragState.current.side === "revisions") {
         const next = dragState.current.startHeight - (event.clientY - dragState.current.startY);
         setRevisionsPaneHeight(Math.max(80, Math.min(500, next)));
+      } else {
+        const next = dragState.current.startHeight - (event.clientY - dragState.current.startY);
+        setPreviewPaneHeight(Math.max(80, Math.min(500, next)));
       }
     };
 
@@ -165,6 +174,15 @@ export function WorkspacePage() {
     return allEntries.find((entry) => entry.id === selectedEntryId) ?? allEntries[0] ?? null;
   }, [allEntries, selectedEntryId]);
 
+  const selectedAttachment = useMemo(() => {
+    if (!selectedAttachmentId) return null;
+    for (const atts of Object.values(attachmentsByEntry)) {
+      const found = atts.find((a) => a.id === selectedAttachmentId);
+      if (found) return found;
+    }
+    return null;
+  }, [selectedAttachmentId, attachmentsByEntry]);
+
   // Clear revision preview when switching entries.
   const prevEntryIdRef = useRef(selectedEntryId);
   useEffect(() => {
@@ -216,7 +234,7 @@ export function WorkspacePage() {
     },
     onSuccess: async (entry) => {
       await refreshTree();
-      setSelectedEntryId(entry.id);
+      setSelectedEntryId(entry.id); setSelectedAttachmentId(null);
       setExpandedNotebookIds((prev) => ({ ...prev, [entry.notebook_id]: true }));
     },
   });
@@ -253,7 +271,7 @@ export function WorkspacePage() {
     },
     onSuccess: async (entry) => {
       await refreshTree();
-      setSelectedEntryId(entry.id);
+      setSelectedEntryId(entry.id); setSelectedAttachmentId(null);
       setExpandedNotebookIds((prev) => ({ ...prev, [entry.notebook_id]: true }));
     },
   });
@@ -551,7 +569,7 @@ export function WorkspacePage() {
                       className="truncate text-left"
                       onClick={() => {
                         setExpandedNotebookIds((prev) => ({ ...prev, [notebook.id]: true }));
-                        if (entries[0]) setSelectedEntryId(entries[0].id);
+                        if (entries[0]) { setSelectedEntryId(entries[0].id); setSelectedAttachmentId(null); }
                       }}
                     >
                       {notebook.title}
@@ -660,7 +678,7 @@ export function WorkspacePage() {
                             className="w-full border border-slate-300 dark:border-slate-700 px-1 py-0.5 text-sm outline-none dark:bg-slate-950 dark:text-slate-100"
                           />
                         ) : (
-                          <button className="truncate text-left" onClick={() => setSelectedEntryId(entry.id)}>
+                          <button className="truncate text-left" onClick={() => { setSelectedEntryId(entry.id); setSelectedAttachmentId(null); }}>
                             {entry.title}
                           </button>
                         )}
@@ -673,8 +691,13 @@ export function WorkspacePage() {
                             <div
                               key={att.id}
                               draggable
-                              className="flex items-center gap-2 py-0.5 pr-2 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-default"
+                              className={`flex items-center gap-2 py-0.5 pr-2 text-xs text-slate-500 dark:text-slate-400 cursor-default ${
+                                selectedAttachmentId === att.id
+                                  ? "bg-blue-100 dark:bg-blue-900/40"
+                                  : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                              }`}
                               title={`${att.filename} (${(att.size / 1024).toFixed(1)} KB)`}
+                              onClick={() => setSelectedAttachmentId(att.id)}
                               onDoubleClick={() => void downloadAttachment(att.id, att.filename)}
                               onContextMenu={(event) =>
                                 openContextMenu(event, {
@@ -715,32 +738,98 @@ export function WorkspacePage() {
 
         </div>{/* end explorer scroll area */}
 
-        {/* --- Horizontal splitter --- */}
+        {/* --- Preview section header (always visible) --- */}
         <div
-          className="h-px shrink-0 cursor-row-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
-          onMouseDown={(event) => {
-            dragState.current = {
-              side: "revisions",
-              startX: event.clientX,
-              startY: event.clientY,
-              startWidth: 0,
-              startHeight: revisionsPaneHeight,
-            };
-          }}
-        />
-
-        {/* --- Revisions panel (bottom) --- */}
-        <div className="shrink-0 overflow-hidden" style={{ height: revisionsPaneHeight }}>
-          <RevisionsPanel
-            entry={selectedEntry}
-            activePreviewId={previewRevision?.id ?? null}
-            onRestore={() => {
-              setPreviewRevision(null);
-              setEditorGeneration((n) => n + 1);
-            }}
-            onPreview={setPreviewRevision}
-          />
+          className="shrink-0 flex items-center gap-1.5 border-y border-slate-200 dark:border-slate-800 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-slate-800/60"
+          onClick={() => setPreviewCollapsed((c) => !c)}
+        >
+          {previewCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          <Image size={12} />
+          <span>Preview</span>
+          {selectedAttachment && (
+            <span className="ml-auto font-normal normal-case tracking-normal text-[10px] text-slate-400 dark:text-slate-500 truncate max-w-[50%]">
+              {selectedAttachment.filename} · {(selectedAttachment.size / 1024).toFixed(1)} KB
+            </span>
+          )}
         </div>
+
+        {!previewCollapsed && (
+          <>
+            {/* Preview pane body */}
+            <div className="shrink-0 overflow-hidden flex flex-col" style={{ height: previewPaneHeight }}>
+              {selectedAttachment && selectedAttachment.mime_type.startsWith("image/") ? (
+                <>
+                  <div className="flex-1 min-h-0 flex items-center justify-center p-2 bg-slate-50 dark:bg-slate-950/50">
+                    <img
+                      src={`/api/attachments/${selectedAttachment.id}`}
+                      alt={selectedAttachment.filename}
+                      className="max-w-full max-h-full object-contain rounded"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 min-h-0 flex items-center justify-center p-2 text-xs text-slate-400 dark:text-slate-500">
+                  {selectedAttachment ? "No preview available" : "Select an image attachment to preview"}
+                </div>
+              )}
+            </div>
+
+            {/* Preview ↔ Revisions splitter */}
+            <div
+              className="h-px shrink-0 cursor-row-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
+              onMouseDown={(event) => {
+                dragState.current = {
+                  side: "preview",
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startWidth: 0,
+                  startHeight: previewPaneHeight,
+                };
+              }}
+            />
+          </>
+        )}
+
+        {/* --- Revisions section header --- */}
+        <div
+          className="shrink-0 flex items-center gap-1.5 border-y border-slate-200 dark:border-slate-800 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-slate-800/60"
+          onClick={() => setRevisionsCollapsed((c) => !c)}
+        >
+          {revisionsCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          <History size={12} />
+          <span>Revisions</span>
+        </div>
+
+        {!revisionsCollapsed && (
+          <>
+            {/* Revisions splitter */}
+            <div
+              className="h-px shrink-0 cursor-row-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
+              onMouseDown={(event) => {
+                dragState.current = {
+                  side: "revisions",
+                  startX: event.clientX,
+                  startY: event.clientY,
+                  startWidth: 0,
+                  startHeight: revisionsPaneHeight,
+                };
+              }}
+            />
+
+            {/* Revisions panel body */}
+            <div className="shrink-0 overflow-hidden" style={{ height: revisionsPaneHeight }}>
+              <RevisionsPanel
+                entry={selectedEntry}
+                activePreviewId={previewRevision?.id ?? null}
+                onRestore={() => {
+                  setPreviewRevision(null);
+                  setEditorGeneration((n) => n + 1);
+                }}
+                onPreview={setPreviewRevision}
+              />
+            </div>
+          </>
+        )}
       </aside>
 
       <div

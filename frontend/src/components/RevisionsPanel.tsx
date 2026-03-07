@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { History, RotateCcw } from "lucide-react";
+import { RotateCcw } from "lucide-react";
 
 import { api } from "../lib/api";
 import { computeDiff, type DiffSummary } from "../lib/diffBlocks";
@@ -78,11 +78,6 @@ export function RevisionsPanel({
 
   return (
     <div className="flex h-full flex-col text-sm">
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-slate-200 dark:border-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
-        <History size={12} />
-        <span>Revisions</span>
-      </div>
-
       <div className="flex-1 overflow-y-auto">
         {revisionsQuery.isLoading && (
           <div className="px-3 py-2 text-xs text-slate-500 dark:text-slate-400">Loading…</div>
