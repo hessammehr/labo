@@ -24,7 +24,6 @@ import {
   Share2,
   Shield,
   Trash2,
-  User,
 } from "lucide-react";
 
 import { EntryEditorForm, type AttachmentDropData } from "../components/EntryEditorForm";
@@ -440,17 +439,11 @@ export function WorkspacePage() {
     return event.dataTransfer.types.includes("Files");
   };
 
-  const hasMarkdownFiles = (event: ReactDragEvent) => {
-    // During dragover we can check types but not filenames in most browsers,
-    // so we allow the drop and filter in the handler.
-    return event.dataTransfer.types.includes("Files");
-  };
-
   const SharingIcon = ({ level }: { level: string | null }) => {
     if (!level) return null;
-    if (level === "owner") return <Shield size={12} className="shrink-0 text-amber-500" title="Shared (co-owner)" />;
-    if (level === "write") return <Pencil size={12} className="shrink-0 text-blue-500" title="Shared (editor)" />;
-    return <Eye size={12} className="shrink-0 text-slate-400" title="Shared (viewer)" />;
+    if (level === "owner") return <Shield size={12} className="shrink-0 text-amber-500" aria-label="Shared (co-owner)" />;
+    if (level === "write") return <Pencil size={12} className="shrink-0 text-blue-500" aria-label="Shared (editor)" />;
+    return <Eye size={12} className="shrink-0 text-slate-400" aria-label="Shared (viewer)" />;
   };
 
   return (

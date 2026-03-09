@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Block, PartialBlock } from "@blocknote/core";
+import type { PartialBlock } from "@blocknote/core";
 import { useCreateBlockNote, SuggestionMenuController } from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { flip, offset, shift, size } from "@floating-ui/react";
