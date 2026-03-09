@@ -7,6 +7,9 @@ UVICORN := uv run python -m uvicorn
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
 
+install:
+	cd $(FRONTEND_DIR) && bun install
+
 dev: ## Run backend + frontend dev servers
 	@set -e; \
 	trap 'kill 0' INT TERM EXIT; \
@@ -26,14 +29,10 @@ run: ## Run backend server (production)
 build-frontend: ## Build frontend static bundle
 	cd $(FRONTEND_DIR) && bun run build
 
-serve: ## Expose local server over HTTPS via Tailscale
-	tailscale serve https+insecure://127.0.0.1:8000
-
-serve-bg: ## Expose local server over HTTPS via Tailscale (background)
-	tailscale serve --bg https+insecure://127.0.0.1:8000
-
-serve-off: ## Stop Tailscale background serve
-	tailscale serve --bg off
+serve: ## Run server and expose over HTTPS via Tailscale
+	@tailscale serve --bg --https=443 http://127.0.0.1:8000
+	@trap 'tailscale serve --bg off' INT TERM EXIT; \
+	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --host 127.0.0.1 --port 8000
 
 migrate: ## Run database migrations
 	cd $(BACKEND_DIR) && uv run alembic upgrade head
