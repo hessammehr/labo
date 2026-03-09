@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
 
 from app.core.config import settings
 from app.core.database import Base, engine
@@ -19,3 +23,16 @@ app.include_router(permissions.router, prefix="/api")
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+# Serve frontend static files if the build directory exists
+FRONTEND_DIST = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
+if FRONTEND_DIST.is_dir():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="static")
+
+    @app.get("/{path:path}")
+    async def serve_spa(path: str):
+        file = FRONTEND_DIST / path
+        if file.is_file():
+            return FileResponse(file)
+        return FileResponse(FRONTEND_DIST / "index.html")
