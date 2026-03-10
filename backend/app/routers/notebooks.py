@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.access import highest_shared_level, require_access, user_sharing_status
+from app.core.access import require_access, user_sharing_status
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models import Entry, Notebook, Permission, User
+from app.models import Notebook, Permission, User
 from app.schemas import NotebookCreate, NotebookOut, NotebookUpdate
 
 router = APIRouter(prefix="/notebooks", tags=["notebooks"])
@@ -15,35 +15,15 @@ def list_notebooks(db: Session = Depends(get_db), user: User = Depends(get_curre
     if user.role == "admin":
         notebooks = db.query(Notebook).all()
     else:
-        # Notebooks the user has direct permission on
-        direct_notebook_ids = (
-            db.query(Permission.resource_id)
-            .filter(
-                Permission.subject_id == user.id,
-                Permission.resource_type == "notebook",
-            )
-            .subquery()
-        )
-
-        # Notebooks containing entries the user has direct permission on
-        entry_notebook_ids = (
-            db.query(Entry.notebook_id)
-            .filter(
-                Entry.id.in_(
-                    db.query(Permission.resource_id).filter(
-                        Permission.subject_id == user.id,
-                        Permission.resource_type == "entry",
-                    )
-                )
-            )
-            .subquery()
-        )
-
         notebooks = (
             db.query(Notebook)
             .filter(
-                Notebook.id.in_(direct_notebook_ids)
-                | Notebook.id.in_(entry_notebook_ids)
+                Notebook.id.in_(
+                    db.query(Permission.resource_id).filter(
+                        Permission.subject_id == user.id,
+                        Permission.resource_type == "notebook",
+                    )
+                )
             )
             .all()
         )

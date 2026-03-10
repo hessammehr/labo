@@ -17,7 +17,6 @@ export type Entry = {
   tags: string[];
   created_at: string;
   updated_at: string;
-  sharing_level: string | null;
 };
 
 export type Attachment = {

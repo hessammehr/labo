@@ -20,12 +20,10 @@ const LEVEL_ICONS: Record<AccessLevel, typeof Eye> = {
 };
 
 export function ShareModal({
-  resourceType,
   resourceId,
   resourceName,
   onClose,
 }: {
-  resourceType: "notebook" | "entry";
   resourceId: string;
   resourceName: string;
   onClose: () => void;
@@ -46,10 +44,10 @@ export function ShareModal({
 
   // Fetch current permissions
   const permissionsQuery = useQuery({
-    queryKey: ["permissions", resourceType, resourceId],
+    queryKey: ["permissions", "notebook", resourceId],
     queryFn: async () => {
       const { data } = await api.get<PermissionDetail[]>(
-        `/permissions/resource/${resourceType}/${resourceId}`
+        `/permissions/resource/notebook/${resourceId}`
       );
       return data;
     },
@@ -78,7 +76,7 @@ export function ShareModal({
     }) => {
       await api.post("/permissions/", {
         subject_id: subjectId,
-        resource_type: resourceType,
+        resource_type: "notebook",
         resource_id: resourceId,
         access_level: accessLevel,
       });
@@ -86,7 +84,7 @@ export function ShareModal({
     onSuccess: async () => {
       setSearchQuery("");
       await queryClient.invalidateQueries({
-        queryKey: ["permissions", resourceType, resourceId],
+        queryKey: ["permissions", "notebook", resourceId],
       });
       // Refresh tree data so sharing icons update
       await queryClient.invalidateQueries({ queryKey: ["notebooks"] });
@@ -104,14 +102,14 @@ export function ShareModal({
     }) => {
       await api.post("/permissions/", {
         subject_id: subjectId,
-        resource_type: resourceType,
+        resource_type: "notebook",
         resource_id: resourceId,
         access_level: accessLevel,
       });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: ["permissions", resourceType, resourceId],
+        queryKey: ["permissions", "notebook", resourceId],
       });
       await queryClient.invalidateQueries({ queryKey: ["notebooks"] });
       await queryClient.invalidateQueries({ queryKey: ["entries"] });
@@ -124,7 +122,7 @@ export function ShareModal({
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({
-        queryKey: ["permissions", resourceType, resourceId],
+        queryKey: ["permissions", "notebook", resourceId],
       });
       await queryClient.invalidateQueries({ queryKey: ["notebooks"] });
       await queryClient.invalidateQueries({ queryKey: ["entries"] });
@@ -151,7 +149,7 @@ export function ShareModal({
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-4 py-3">
           <div>
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
-              Share {resourceType === "notebook" ? "Notebook" : "Entry"}
+              Share Notebook
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
               {resourceName}
@@ -293,7 +291,7 @@ export function ShareModal({
         </div>
 
         {/* Footer note about cascading */}
-        {resourceType === "notebook" && (
+        {(
           <div className="border-t border-slate-200 dark:border-slate-800 px-4 py-2">
             <p className="text-[11px] text-slate-400 dark:text-slate-500">
               Notebook permissions apply to all entries and attachments within.

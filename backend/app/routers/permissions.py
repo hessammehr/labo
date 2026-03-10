@@ -17,6 +17,11 @@ def grant_permission(
     user: User = Depends(get_current_user),
 ):
     """Grant or update a permission. Requires owner-level access on the resource."""
+    if body.resource_type != "notebook":
+        raise HTTPException(
+            status_code=422,
+            detail="Sharing is only supported at the notebook level",
+        )
     require_access(db, user, body.resource_type, body.resource_id, "owner")
 
     # Validate subject exists

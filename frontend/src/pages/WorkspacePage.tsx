@@ -83,7 +83,6 @@ export function WorkspacePage() {
   const [attDropEntryId, setAttDropEntryId] = useState<string | null>(null);
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
   const [shareModal, setShareModal] = useState<{
-    resourceType: "notebook" | "entry";
     resourceId: string;
     resourceName: string;
   } | null>(null);
@@ -697,7 +696,6 @@ export function WorkspacePage() {
                             {entry.title}
                           </button>
                         )}
-                        <SharingIcon level={entry.sharing_level} />
                       </div>
 
                       {/* Attachments nested under entry */}
@@ -987,7 +985,6 @@ export function WorkspacePage() {
                   const notebook = orderedNotebooks.find((n) => n.id === contextMenu.notebookId);
                   setContextMenu(null);
                   setShareModal({
-                    resourceType: "notebook",
                     resourceId: contextMenu.notebookId,
                     resourceName: notebook?.title ?? "Notebook",
                   });
@@ -1019,19 +1016,6 @@ export function WorkspacePage() {
 
           {contextMenu.kind === "entry" && (
             <>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-                onClick={() => {
-                  setContextMenu(null);
-                  setShareModal({
-                    resourceType: "entry",
-                    resourceId: contextMenu.entryId,
-                    resourceName: menuEntry?.title ?? "Entry",
-                  });
-                }}
-              >
-                <Share2 size={14} /> Share…
-              </button>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
@@ -1100,7 +1084,6 @@ export function WorkspacePage() {
 
       {shareModal && (
         <ShareModal
-          resourceType={shareModal.resourceType}
           resourceId={shareModal.resourceId}
           resourceName={shareModal.resourceName}
           onClose={() => setShareModal(null)}
