@@ -24,11 +24,11 @@ export function LabBook({
       {...props}
     >
       {/* Book body */}
-      <rect x="5" y="2" width="18" height="20" rx="1" />
+      <rect x="3" y="1" width="20" height="22" rx="1" />
       {/* Spine */}
-      <line x1="8" y1="2" x2="8" y2="22"/>
+      <line x1="5" y1="1" x2="5" y2="23" strokeWidth="6" strokeLinecap="butt"/>
       {/* Title label */}
-      <rect x="12" y="12" width="6" height="5" rx="0.5" />
+      <rect x="11" y="12" width="6" height="5" rx="0.5" />
     </svg>
   );
 }
