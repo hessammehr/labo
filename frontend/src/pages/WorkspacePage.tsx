@@ -22,8 +22,8 @@ import {
   Pencil,
   Plus,
   Share2,
-  Shield,
   Trash2,
+  UserCheck,
 } from "lucide-react";
 
 import { EntryEditorForm, type AttachmentDropData } from "../components/EntryEditorForm";
@@ -441,9 +441,12 @@ export function WorkspacePage() {
 
   const SharingIcon = ({ level }: { level: string | null }) => {
     if (!level) return null;
-    if (level === "owner") return <Shield size={12} className="shrink-0 text-amber-500" aria-label="Shared (co-owner)" />;
-    if (level === "write") return <Pencil size={12} className="shrink-0 text-blue-500" aria-label="Shared (editor)" />;
-    return <Eye size={12} className="shrink-0 text-slate-400" aria-label="Shared (viewer)" />;
+    // Current user shared this item with others
+    if (level === "shared_by_me") return <Share2 size={12} className="shrink-0 text-blue-500" aria-label="Shared by you" />;
+    // Current user is a recipient – show their access level
+    if (level === "owner") return <UserCheck size={12} className="shrink-0 text-amber-500" aria-label="Shared with you (co-owner)" />;
+    if (level === "write") return <Pencil size={12} className="shrink-0 text-blue-500" aria-label="Shared with you (editor)" />;
+    return <Eye size={12} className="shrink-0 text-slate-400" aria-label="Shared with you (viewer)" />;
   };
 
   return (

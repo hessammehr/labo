@@ -107,3 +107,56 @@ def highest_shared_level(db: Session, resource_type: str, resource_id: str) -> s
         return None
     best = max(LEVELS.get(p.access_level, -1) for p in perms)
     return LEVEL_NAMES.get(best)
+
+
+def user_sharing_status(
+    db: Session,
+    user_id: str,
+    author_id: str,
+    resource_type: str,
+    resource_id: str,
+) -> str | None:
+    """Return the sharing status from the perspective of the given user.
+
+    Returns:
+      - "shared_by_me" – current user is the original author and the resource
+        has been shared with at least one other person.
+      - "read" / "write" / "owner" – current user is a recipient with that
+        access level.
+      - None – resource is not shared.
+
+    Note: for notebooks the creator always has a direct "owner" permission row,
+    so "not shared" means <= 1 row.  For entries the creator has *no* direct
+    permission row (access is inherited from the notebook), so any permission
+    row at all means the entry has been explicitly shared.
+    """
+    perms = (
+        db.query(Permission)
+        .filter(
+            Permission.resource_type == resource_type,
+            Permission.resource_id == resource_id,
+        )
+        .all()
+    )
+
+    if not perms:
+        return None
+
+    # For notebooks the creator holds a direct owner row; for entries they don't.
+    has_creator_row = any(p.subject_id == author_id for p in perms)
+    min_shared = 2 if has_creator_row else 1
+    if len(perms) < min_shared:
+        return None  # not shared
+
+    user_perm = next((p for p in perms if p.subject_id == user_id), None)
+
+    if user_id == author_id:
+        # The author shared this resource — but only flag it when there are
+        # permissions belonging to *other* users.
+        others = [p for p in perms if p.subject_id != author_id]
+        return "shared_by_me" if others else None
+
+    if user_perm:
+        return user_perm.access_level  # "read", "write", or "owner"
+
+    return None

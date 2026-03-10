@@ -3,7 +3,7 @@ from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.core.access import highest_shared_level, require_access
+from app.core.access import highest_shared_level, require_access, resolve_access, user_sharing_status
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import Entry, EntryRevision, Notebook, Permission, User
@@ -84,18 +84,39 @@ def list_entries_for_notebook(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    require_access(db, user, "notebook", notebook_id, "read")
-    entries = (
-        db.query(Entry)
-        .filter(Entry.notebook_id == notebook_id)
-        .order_by(Entry.updated_at.desc())
-        .all()
-    )
+    notebook_access = resolve_access(db, user, "notebook", notebook_id)
+
+    if notebook_access:
+        # User has notebook-level access → show all entries in the notebook
+        entries = (
+            db.query(Entry)
+            .filter(Entry.notebook_id == notebook_id)
+            .order_by(Entry.updated_at.desc())
+            .all()
+        )
+    else:
+        # User may have entry-level access to individual entries in this notebook
+        entries = (
+            db.query(Entry)
+            .filter(
+                Entry.notebook_id == notebook_id,
+                Entry.id.in_(
+                    db.query(Permission.resource_id).filter(
+                        Permission.subject_id == user.id,
+                        Permission.resource_type == "entry",
+                    )
+                ),
+            )
+            .order_by(Entry.updated_at.desc())
+            .all()
+        )
+        if not entries:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     result = []
     for entry in entries:
         out = EntryOut.model_validate(entry)
-        out.sharing_level = highest_shared_level(db, "entry", entry.id)
+        out.sharing_level = user_sharing_status(db, user.id, entry.author_id, "entry", entry.id)
         result.append(out)
     return result
 
