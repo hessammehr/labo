@@ -14,8 +14,6 @@ import {
   Eye,
   FilePlus2,
   FileText,
-  Folder,
-  FolderPlus,
   History,
   Image,
   Paperclip,
@@ -27,6 +25,7 @@ import {
 } from "lucide-react";
 
 import { EntryEditorForm, type AttachmentDropData } from "../components/EntryEditorForm";
+import { LabBook, LabBookPlus } from "../components/icons";
 import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
 import { ShareModal } from "../components/ShareModal";
 import { api } from "../lib/api";
@@ -474,7 +473,7 @@ export function WorkspacePage() {
                 setRenameState(null);
               }}
             >
-              <FolderPlus size={14} />
+              <LabBookPlus size={14} />
             </button>
             <button
               title="New Entry"
@@ -496,7 +495,7 @@ export function WorkspacePage() {
         <div className="py-1">
           {creatingNotebookName !== "" && (
             <div className="flex items-center gap-2 px-3 py-1">
-              <Folder size={14} className="text-slate-500 dark:text-slate-400" />
+              <LabBook size={14} className="text-slate-500 dark:text-slate-400" />
               <input
                 autoFocus
                 value={creatingNotebookName}
@@ -560,7 +559,7 @@ export function WorkspacePage() {
                   >
                     {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </button>
-                  <Folder size={14} className="text-slate-500 dark:text-slate-400" />
+                  <LabBook size={14} className="text-slate-500 dark:text-slate-400" />
 
                   {renameState?.kind === "notebook" && renameState.id === notebook.id ? (
                     <input
@@ -962,7 +961,7 @@ export function WorkspacePage() {
                 setRenameState(null);
               }}
             >
-              <FolderPlus size={14} /> New Notebook
+              <LabBookPlus size={14} /> New Notebook
             </button>
           )}
 
