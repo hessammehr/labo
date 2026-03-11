@@ -57,11 +57,13 @@ type ContextMenuState =
       kind: "attachment";
       attachmentId: string;
       filename: string;
+      notebookId: string;
     };
 
 type RenameState =
   | { kind: "notebook"; id: string; value: string }
   | { kind: "entry"; id: string; value: string }
+  | { kind: "attachment"; id: string; value: string }
   | null;
 
 export function WorkspacePage() {
@@ -299,6 +301,15 @@ export function WorkspacePage() {
     },
   });
 
+  const renameAttachment = useMutation({
+    mutationFn: async ({ attachmentId, filename }: { attachmentId: string; filename: string }) => {
+      await api.patch(`/attachments/${attachmentId}`, { filename });
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["attachments"] });
+    },
+  });
+
   const moveAttachment = useMutation({
     mutationFn: async ({ attachmentId, entryId }: { attachmentId: string; entryId: string }) => {
       await api.patch(`/attachments/${attachmentId}`, { entry_id: entryId });
@@ -422,8 +433,10 @@ export function WorkspacePage() {
     if (!value) return;
     if (renameState.kind === "notebook") {
       await renameNotebook.mutateAsync({ notebookId: renameState.id, title: value });
-    } else {
+    } else if (renameState.kind === "entry") {
       await renameEntry.mutateAsync({ entryId: renameState.id, title: value });
+    } else if (renameState.kind === "attachment") {
+      await renameAttachment.mutateAsync({ attachmentId: renameState.id, filename: value });
     }
     setRenameState(null);
   };
@@ -475,6 +488,17 @@ export function WorkspacePage() {
 
   const hasExternalFiles = (event: ReactDragEvent) => {
     return event.dataTransfer.types.includes("Files");
+  };
+
+  /** Whether the current user has write access to a notebook based on its sharing_level. */
+  const canWriteNotebook = (notebookId: string): boolean => {
+    const notebook = orderedNotebooks.find((n) => n.id === notebookId);
+    if (!notebook) return false;
+    const level = notebook.sharing_level;
+    // null = own notebook (not shared), "shared_by_me" = own notebook shared with others,
+    // "owner" = co-owner, "write" = editor → all writable.
+    // "read" = viewer → read-only.
+    return level !== "read";
   };
 
   const SharingIcon = ({ level }: { level: string | null }) => {
@@ -759,6 +783,7 @@ export function WorkspacePage() {
                                   kind: "attachment",
                                   attachmentId: att.id,
                                   filename: att.filename,
+                                  notebookId: notebook.id,
                                 })
                               }
                               onDragStart={(event) => {
@@ -775,7 +800,23 @@ export function WorkspacePage() {
                               }}
                             >
                               <Paperclip size={12} className="shrink-0" />
-                              <span className="truncate">{att.filename}</span>
+                              {renameState?.kind === "attachment" && renameState.id === att.id ? (
+                                <input
+                                  autoFocus
+                                  value={renameState.value}
+                                  onChange={(event) =>
+                                    setRenameState({ kind: "attachment", id: att.id, value: event.target.value })
+                                  }
+                                  onBlur={submitRename}
+                                  onKeyDown={async (event) => {
+                                    if (event.key === "Enter") await submitRename();
+                                    if (event.key === "Escape") setRenameState(null);
+                                  }}
+                                  className="w-full border border-slate-300 dark:border-slate-700 px-1 py-0.5 text-xs outline-none dark:bg-slate-950 dark:text-slate-100"
+                                />
+                              ) : (
+                                <span className="truncate">{att.filename}</span>
+                              )}
                             </div>
                           ))}
                         </div>
@@ -1007,17 +1048,19 @@ export function WorkspacePage() {
 
           {contextMenu.kind === "notebook" && (
             <>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-                onClick={() => {
-                  setContextMenu(null);
-                  setCreatingEntryNotebookId(contextMenu.notebookId);
-                  setCreatingEntryTitle("Untitled Entry");
-                  setExpandedNotebookIds((prev) => ({ ...prev, [contextMenu.notebookId]: true }));
-                }}
-              >
-                <FilePlus2 size={14} /> New Entry
-              </button>
+              {canWriteNotebook(contextMenu.notebookId) && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setContextMenu(null);
+                    setCreatingEntryNotebookId(contextMenu.notebookId);
+                    setCreatingEntryTitle("Untitled Entry");
+                    setExpandedNotebookIds((prev) => ({ ...prev, [contextMenu.notebookId]: true }));
+                  }}
+                >
+                  <FilePlus2 size={14} /> New Entry
+                </button>
+              )}
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
@@ -1057,39 +1100,45 @@ export function WorkspacePage() {
                   ))}
                 </div>
               </div>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-                onClick={() => {
-                  const notebook = orderedNotebooks.find((n) => n.id === contextMenu.notebookId);
-                  setContextMenu(null);
-                  setRenameState({ kind: "notebook", id: contextMenu.notebookId, value: notebook?.title ?? "" });
-                }}
-              >
-                <Pencil size={14} /> Rename
-              </button>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
-                onClick={async () => {
-                  setContextMenu(null);
-                  await deleteNotebook.mutateAsync(contextMenu.notebookId);
-                }}
-              >
-                <Trash2 size={14} /> Delete
-              </button>
+              {canWriteNotebook(contextMenu.notebookId) && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    const notebook = orderedNotebooks.find((n) => n.id === contextMenu.notebookId);
+                    setContextMenu(null);
+                    setRenameState({ kind: "notebook", id: contextMenu.notebookId, value: notebook?.title ?? "" });
+                  }}
+                >
+                  <Pencil size={14} /> Rename
+                </button>
+              )}
+              {canWriteNotebook(contextMenu.notebookId) && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                  onClick={async () => {
+                    setContextMenu(null);
+                    await deleteNotebook.mutateAsync(contextMenu.notebookId);
+                  }}
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
+              )}
             </>
           )}
 
           {contextMenu.kind === "entry" && (
             <>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-                onClick={() => {
-                  setContextMenu(null);
-                  setRenameState({ kind: "entry", id: contextMenu.entryId, value: menuEntry?.title ?? "" });
-                }}
-              >
-                <Pencil size={14} /> Rename
-              </button>
+              {canWriteNotebook(contextMenu.notebookId) && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setContextMenu(null);
+                    setRenameState({ kind: "entry", id: contextMenu.entryId, value: menuEntry?.title ?? "" });
+                  }}
+                >
+                  <Pencil size={14} /> Rename
+                </button>
+              )}
               {/* Export submenu for entry */}
               <div className="group/export relative">
                 <div className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-default">
@@ -1113,20 +1162,33 @@ export function WorkspacePage() {
                   ))}
                 </div>
               </div>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
-                onClick={async () => {
-                  setContextMenu(null);
-                  await deleteEntry.mutateAsync(contextMenu.entryId);
-                }}
-              >
-                <Trash2 size={14} /> Delete
-              </button>
+              {canWriteNotebook(contextMenu.notebookId) && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                  onClick={async () => {
+                    setContextMenu(null);
+                    await deleteEntry.mutateAsync(contextMenu.entryId);
+                  }}
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
+              )}
             </>
           )}
 
           {contextMenu.kind === "attachment" && (
             <>
+              {canWriteNotebook(contextMenu.notebookId) && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                  onClick={() => {
+                    setContextMenu(null);
+                    setRenameState({ kind: "attachment", id: contextMenu.attachmentId, value: contextMenu.filename });
+                  }}
+                >
+                  <Pencil size={14} /> Rename
+                </button>
+              )}
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
@@ -1136,15 +1198,17 @@ export function WorkspacePage() {
               >
                 <Download size={14} /> Download
               </button>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
-                onClick={async () => {
-                  setContextMenu(null);
-                  await deleteAttachment.mutateAsync(contextMenu.attachmentId);
-                }}
-              >
-                <Trash2 size={14} /> Delete
-              </button>
+              {canWriteNotebook(contextMenu.notebookId) && (
+                <button
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
+                  onClick={async () => {
+                    setContextMenu(null);
+                    await deleteAttachment.mutateAsync(contextMenu.attachmentId);
+                  }}
+                >
+                  <Trash2 size={14} /> Delete
+                </button>
+              )}
             </>
           )}
         </div>

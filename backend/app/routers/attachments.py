@@ -124,27 +124,50 @@ def delete_attachment(
     db.commit()
 
 
-class AttachmentMove(BaseModel):
-    entry_id: str
+class AttachmentUpdate(BaseModel):
+    entry_id: str | None = None
+    filename: str | None = None
 
 
 @router.patch("/{attachment_id}", response_model=AttachmentOut)
-def move_attachment(
+def update_attachment(
     attachment_id: str,
-    body: AttachmentMove,
+    body: AttachmentUpdate,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Move an attachment to a different entry."""
+    """Update an attachment (move to different entry and/or rename)."""
     attachment = db.query(Attachment).filter(Attachment.id == attachment_id).first()
     if not attachment:
         raise HTTPException(status_code=404, detail="Attachment not found")
 
-    # Require write access on both source and destination entries
     require_access(db, user, "entry", attachment.entry_id, "write")
-    require_access(db, user, "entry", body.entry_id, "write")
 
-    attachment.entry_id = body.entry_id
+    # Move to a different entry
+    if body.entry_id is not None and body.entry_id != attachment.entry_id:
+        require_access(db, user, "entry", body.entry_id, "write")
+        attachment.entry_id = body.entry_id
+
+    # Rename the attachment
+    if body.filename is not None:
+        new_filename = body.filename.strip()
+        if not new_filename:
+            raise HTTPException(status_code=400, detail="Filename cannot be empty")
+
+        from pathlib import Path
+
+        old_path = Path(attachment.storage_uri)
+        if old_path.exists():
+            # Preserve the uuid prefix from the storage name
+            old_name = old_path.name
+            sep_idx = old_name.find("_")
+            prefix = old_name[: sep_idx + 1] if sep_idx != -1 else ""
+            new_path = old_path.parent / f"{prefix}{new_filename}"
+            old_path.rename(new_path)
+            attachment.storage_uri = str(new_path)
+
+        attachment.filename = new_filename
+
     db.commit()
     db.refresh(attachment)
     return attachment
