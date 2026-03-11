@@ -1,11 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
+from pathlib import Path
 from sqlalchemy.orm import Session
 
 from app.core.access import require_access, user_sharing_status
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models import Notebook, Permission, User
+from app.models import Attachment, Entry, Notebook, Permission, User
 from app.schemas import NotebookCreate, NotebookOut, NotebookUpdate
+from app.services.export import EXPORT_FORMATS, AttachmentInfo, export_document, notebook_to_markdown
 
 router = APIRouter(prefix="/notebooks", tags=["notebooks"])
 
@@ -116,3 +119,71 @@ def delete_notebook(
 
     db.delete(notebook)
     db.commit()
+
+
+@router.get("/{notebook_id}/export")
+def export_notebook(
+    notebook_id: str,
+    format: str = Query("md", description="Export format: md, html, pdf, docx, latex"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Export an entire notebook in the requested format.
+
+    Each entry is rendered with its title as an H1 heading, separated by
+    horizontal rules.
+    """
+    if format not in EXPORT_FORMATS:
+        raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+
+    notebook = db.query(Notebook).filter(Notebook.id == notebook_id).first()
+    if not notebook:
+        raise HTTPException(status_code=404, detail="Notebook not found")
+    require_access(db, user, "notebook", notebook_id, "read")
+
+    entries = (
+        db.query(Entry)
+        .filter(Entry.notebook_id == notebook_id)
+        .order_by(Entry.updated_at.desc())
+        .all()
+    )
+
+    entry_dicts = [
+        {"title": e.title, "content_blocks": e.content_blocks or []}
+        for e in entries
+    ]
+
+    md = notebook_to_markdown(entry_dicts)
+
+    # Collect attachments across all entries in this notebook
+    entry_ids = [e.id for e in entries]
+    db_attachments = (
+        db.query(Attachment)
+        .filter(Attachment.entry_id.in_(entry_ids))
+        .all()
+    ) if entry_ids else []
+    att_infos = [
+        AttachmentInfo(id=a.id, filename=a.filename, storage_path=Path(a.storage_uri))
+        for a in db_attachments
+    ]
+
+    info = EXPORT_FORMATS[format]
+    safe_title = notebook.title.replace(" ", "_")
+
+    try:
+        data, is_zip = export_document(md, format, safe_title, att_infos)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if is_zip:
+        filename = safe_title + ".zip"
+        mime = "application/zip"
+    else:
+        filename = safe_title + info["extension"]
+        mime = info["mime"]
+
+    return Response(
+        content=data,
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

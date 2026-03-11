@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Download,
   Eye,
+  FileDown,
   FilePlus2,
   FileText,
   History,
@@ -324,6 +325,45 @@ export function WorkspacePage() {
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const exportResource = async (
+    kind: "entry" | "notebook",
+    id: string,
+    title: string,
+    format: string,
+  ) => {
+    const endpoint =
+      kind === "entry"
+        ? `/entries/${id}/export?format=${format}`
+        : `/notebooks/${id}/export?format=${format}`;
+    const resp = await api.get(endpoint, { responseType: "blob" });
+    // Prefer server-provided filename from Content-Disposition header
+    const disposition = resp.headers["content-disposition"] ?? "";
+    const match = disposition.match(/filename="(.+)"/);
+    const fallbackExt =
+      { md: ".md", html: ".html", pdf: ".pdf", docx: ".docx", latex: ".tex" }[format] ?? "";
+    const filename = match ? match[1] : title.replace(/ /g, "_") + fallbackExt;
+    const url = URL.createObjectURL(resp.data as Blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportFormats = (hasAttachments: boolean) => {
+    const formats = [
+      { key: "md", label: hasAttachments ? "Markdown (.zip)" : "Markdown (.md)" },
+      { key: "html", label: "HTML (.html)" },
+      { key: "pdf", label: "PDF (.pdf)" },
+      { key: "docx", label: "Word (.docx)" },
+      { key: "latex", label: hasAttachments ? "LaTeX (.zip)" : "LaTeX (.tex)" },
+    ];
+    if (hasAttachments) {
+      formats.push({ key: "attachments", label: "Attachments (.zip)" });
+    }
+    return formats;
   };
 
   const deleteEntry = useMutation({
@@ -991,6 +1031,32 @@ export function WorkspacePage() {
               >
                 <Share2 size={14} /> Share…
               </button>
+              {/* Export submenu for notebook */}
+              <div className="group/export relative">
+                <div className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-default">
+                  <FileDown size={14} /> Export
+                  <ChevronRight size={12} className="ml-auto" />
+                </div>
+                <div className="invisible group-hover/export:visible absolute left-full top-0 z-50 min-w-48 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 py-1 text-sm shadow-lg">
+                  {exportFormats(
+                    (entriesByNotebook[contextMenu.notebookId] ?? []).some(
+                      (e) => (attachmentsByEntry[e.id] ?? []).length > 0,
+                    ),
+                  ).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                      onClick={async () => {
+                        const notebook = orderedNotebooks.find((n) => n.id === contextMenu.notebookId);
+                        setContextMenu(null);
+                        await exportResource("notebook", contextMenu.notebookId, notebook?.title ?? "Notebook", key);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
                 onClick={() => {
@@ -1024,26 +1090,29 @@ export function WorkspacePage() {
               >
                 <Pencil size={14} /> Rename
               </button>
-              <button
-                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-                onClick={async () => {
-                  setContextMenu(null);
-                  const resp = await api.get(`/entries/${contextMenu.entryId}/markdown`, {
-                    responseType: "blob",
-                  });
-                  const disposition = resp.headers["content-disposition"] ?? "";
-                  const match = disposition.match(/filename="(.+)"/);
-                  const filename = match ? match[1] : "entry.md";
-                  const url = URL.createObjectURL(resp.data as Blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = filename;
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                <Download size={14} /> Export as Markdown
-              </button>
+              {/* Export submenu for entry */}
+              <div className="group/export relative">
+                <div className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-default">
+                  <FileDown size={14} /> Export
+                  <ChevronRight size={12} className="ml-auto" />
+                </div>
+                <div className="invisible group-hover/export:visible absolute left-full top-0 z-50 min-w-48 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 py-1 text-sm shadow-lg">
+                  {exportFormats(
+                    (attachmentsByEntry[contextMenu.entryId] ?? []).length > 0,
+                  ).map(({ key, label }) => (
+                    <button
+                      key={key}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                      onClick={async () => {
+                        setContextMenu(null);
+                        await exportResource("entry", contextMenu.entryId, menuEntry?.title ?? "Entry", key);
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-red-700 hover:bg-red-50 dark:hover:bg-red-950/40"
                 onClick={async () => {

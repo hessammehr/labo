@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import PlainTextResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import PlainTextResponse, Response
+from pathlib import Path
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.access import require_access
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models import Entry, EntryRevision, Notebook, User
+from app.models import Attachment, Entry, EntryRevision, Notebook, User
 from app.schemas import EntryCreate, EntryImport, EntryOut, EntryRevisionOut, EntryUpdate
+from app.services.export import EXPORT_FORMATS, AttachmentInfo, entry_to_markdown, export_document
 from app.services.markdown import blocks_to_markdown, markdown_to_blocks
 
 router = APIRouter(prefix="/entries", tags=["entries"])
@@ -121,6 +123,53 @@ def get_entry_markdown(
     return PlainTextResponse(
         content=md,
         media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{entry_id}/export")
+def export_entry(
+    entry_id: str,
+    format: str = Query("md", description="Export format: md, html, pdf, docx, latex"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Export an entry in the requested format."""
+    if format not in EXPORT_FORMATS:
+        raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+
+    entry = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entry not found")
+    require_access(db, user, "entry", entry_id, "read")
+
+    md = entry_to_markdown(entry.content_blocks or [], entry.title)
+
+    # Collect attachments for URL resolution
+    db_attachments = db.query(Attachment).filter(Attachment.entry_id == entry_id).all()
+    att_infos = [
+        AttachmentInfo(id=a.id, filename=a.filename, storage_path=Path(a.storage_uri))
+        for a in db_attachments
+    ]
+
+    info = EXPORT_FORMATS[format]
+    safe_title = entry.title.replace(" ", "_")
+
+    try:
+        data, is_zip = export_document(md, format, safe_title, att_infos)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    if is_zip:
+        filename = safe_title + ".zip"
+        mime = "application/zip"
+    else:
+        filename = safe_title + info["extension"]
+        mime = info["mime"]
+
+    return Response(
+        content=data,
+        media_type=mime,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
