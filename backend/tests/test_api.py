@@ -40,12 +40,12 @@ def client(db):
 
 
 def _register(client, name="Alice", email="alice@example.com", password="secret123"):
-    return client.post("/auth/register", json={"name": name, "email": email, "password": password})
+    return client.post("/api/auth/register", json={"name": name, "email": email, "password": password})
 
 
 def _login(client, email="alice@example.com", password="secret123"):
     """Login and return the client (cookies are set automatically on the TestClient)."""
-    resp = client.post("/auth/login", json={"email": email, "password": password})
+    resp = client.post("/api/auth/login", json={"email": email, "password": password})
     assert resp.status_code == 200
     return resp
 
@@ -64,7 +64,7 @@ class TestAuth:
         assert data["role"] == "user"
 
         # Registration auto-logs in (sets cookie)
-        me = client.get("/auth/me")
+        me = client.get("/api/auth/me")
         assert me.status_code == 200
         assert me.json()["email"] == "alice@example.com"
 
@@ -73,15 +73,15 @@ class TestAuth:
         # Clear cookies to test login flow
         client.cookies.clear()
         _login(client)
-        me = client.get("/auth/me")
+        me = client.get("/api/auth/me")
         assert me.status_code == 200
 
     def test_logout(self, client):
         _register(client)
         _login(client)
-        resp = client.post("/auth/logout")
+        resp = client.post("/api/auth/logout")
         assert resp.status_code == 204
-        me = client.get("/auth/me")
+        me = client.get("/api/auth/me")
         assert me.status_code == 401
 
     def test_duplicate_email(self, client):
@@ -91,11 +91,11 @@ class TestAuth:
 
     def test_bad_login(self, client):
         _register(client)
-        resp = client.post("/auth/login", json={"email": "alice@example.com", "password": "wrong"})
+        resp = client.post("/api/auth/login", json={"email": "alice@example.com", "password": "wrong"})
         assert resp.status_code == 401
 
     def test_unauthenticated_access(self, client):
-        resp = client.get("/auth/me")
+        resp = client.get("/api/auth/me")
         assert resp.status_code == 401
 
 
@@ -105,7 +105,7 @@ class TestApiKeys:
         _login(client)
 
         # Create API key
-        resp = client.post("/auth/api-keys", json={"name": "Test Key"})
+        resp = client.post("/api/auth/api-keys", json={"name": "Test Key"})
         assert resp.status_code == 201
         key_data = resp.json()
         assert key_data["name"] == "Test Key"
@@ -113,12 +113,12 @@ class TestApiKeys:
         assert raw_key.startswith("labo_")
 
         # List keys
-        resp = client.get("/auth/api-keys")
+        resp = client.get("/api/auth/api-keys")
         assert len(resp.json()) == 1
 
         # Use API key (clear cookies first)
         client.cookies.clear()
-        me = client.get("/auth/me", headers={"X-API-Key": raw_key})
+        me = client.get("/api/auth/me", headers={"X-API-Key": raw_key})
         assert me.status_code == 200
         assert me.json()["email"] == "alice@example.com"
 
@@ -126,17 +126,17 @@ class TestApiKeys:
         _register(client)
         _login(client)
 
-        resp = client.post("/auth/api-keys", json={"name": "Temp"})
+        resp = client.post("/api/auth/api-keys", json={"name": "Temp"})
         key_id = resp.json()["id"]
         raw_key = resp.json()["key"]
 
         # Revoke
-        resp = client.delete(f"/auth/api-keys/{key_id}")
+        resp = client.delete(f"/api/auth/api-keys/{key_id}")
         assert resp.status_code == 204
 
         # Key no longer works
         client.cookies.clear()
-        me = client.get("/auth/me", headers={"X-API-Key": raw_key})
+        me = client.get("/api/auth/me", headers={"X-API-Key": raw_key})
         assert me.status_code == 401
 
 
@@ -146,25 +146,25 @@ class TestNotebooks:
         _login(client)
 
         # Create
-        resp = client.post("/notebooks/", json={"title": "Lab 1"})
+        resp = client.post("/api/notebooks/", json={"title": "Lab 1"})
         assert resp.status_code == 201
         nb = resp.json()
         nb_id = nb["id"]
 
         # List
-        resp = client.get("/notebooks/")
+        resp = client.get("/api/notebooks/")
         assert len(resp.json()) == 1
 
         # Get
-        resp = client.get(f"/notebooks/{nb_id}")
+        resp = client.get(f"/api/notebooks/{nb_id}")
         assert resp.json()["title"] == "Lab 1"
 
         # Update
-        resp = client.patch(f"/notebooks/{nb_id}", json={"title": "Lab 1 (updated)"})
+        resp = client.patch(f"/api/notebooks/{nb_id}", json={"title": "Lab 1 (updated)"})
         assert resp.json()["title"] == "Lab 1 (updated)"
 
         # Delete
-        resp = client.delete(f"/notebooks/{nb_id}")
+        resp = client.delete(f"/api/notebooks/{nb_id}")
         assert resp.status_code == 204
 
 
@@ -173,12 +173,12 @@ class TestEntries:
         _register(client)
         _login(client)
 
-        nb = client.post("/notebooks/", json={"title": "NB"}).json()
+        nb = client.post("/api/notebooks/", json={"title": "NB"}).json()
         nb_id = nb["id"]
 
         # Create entry
         resp = client.post(
-            "/entries/",
+            "/api/entries/",
             json={"notebook_id": nb_id, "title": "Exp 1", "content_blocks": [{"type": "text", "text": "hello"}]},
         )
         assert resp.status_code == 201
@@ -187,27 +187,27 @@ class TestEntries:
 
         # Auto-save (no checkpoint) → no revision
         resp = client.put(
-            f"/entries/{entry_id}",
+            f"/api/entries/{entry_id}",
             json={"content_blocks": [{"type": "text", "text": "hello v2"}]},
         )
         assert resp.status_code == 200
 
-        resp = client.get(f"/entries/{entry_id}/revisions")
+        resp = client.get(f"/api/entries/{entry_id}/revisions")
         assert len(resp.json()) == 0
 
         # Title-only update → no revision even with checkpoint
         resp = client.put(
-            f"/entries/{entry_id}",
+            f"/api/entries/{entry_id}",
             json={"title": "Exp 1 (v2)", "checkpoint": True},
         )
         assert resp.json()["title"] == "Exp 1 (v2)"
 
-        resp = client.get(f"/entries/{entry_id}/revisions")
+        resp = client.get(f"/api/entries/{entry_id}/revisions")
         assert len(resp.json()) == 0
 
         # Checkpoint save with content → creates revision
         resp = client.put(
-            f"/entries/{entry_id}",
+            f"/api/entries/{entry_id}",
             json={
                 "content_blocks": [{"type": "text", "text": "hello v3"}],
                 "checkpoint": True,
@@ -216,7 +216,7 @@ class TestEntries:
         )
         assert resp.status_code == 200
 
-        resp = client.get(f"/entries/{entry_id}/revisions")
+        resp = client.get(f"/api/entries/{entry_id}/revisions")
         revisions = resp.json()
         assert len(revisions) == 1
         assert revisions[0]["change_summary"] == "manual save"
@@ -227,29 +227,29 @@ class TestEntries:
         _register(client)
         _login(client)
 
-        nb = client.post("/notebooks/", json={"title": "NB"}).json()
+        nb = client.post("/api/notebooks/", json={"title": "NB"}).json()
 
         entry = client.post(
-            "/entries/",
+            "/api/entries/",
             json={"notebook_id": nb["id"], "title": "E", "content_blocks": [{"type": "text", "text": "v1"}]},
         ).json()
         entry_id = entry["id"]
 
         # Checkpoint save → creates revision with v1
         client.put(
-            f"/entries/{entry_id}",
+            f"/api/entries/{entry_id}",
             json={"content_blocks": [{"type": "text", "text": "v2"}], "checkpoint": True},
         )
 
-        revisions = client.get(f"/entries/{entry_id}/revisions").json()
+        revisions = client.get(f"/api/entries/{entry_id}/revisions").json()
         assert len(revisions) == 1
         rev_id = revisions[0]["id"]
 
         # Restore revision (v1)
-        resp = client.post(f"/entries/{entry_id}/revisions/{rev_id}/restore")
+        resp = client.post(f"/api/entries/{entry_id}/revisions/{rev_id}/restore")
         assert resp.status_code == 200
         assert resp.json()["content_blocks"] == [{"type": "text", "text": "v1"}]
 
         # Should have created an undo checkpoint
-        revisions = client.get(f"/entries/{entry_id}/revisions").json()
+        revisions = client.get(f"/api/entries/{entry_id}/revisions").json()
         assert len(revisions) == 2
