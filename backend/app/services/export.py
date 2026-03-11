@@ -12,6 +12,7 @@ import zipfile
 from pathlib import Path
 
 import cairosvg
+from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,27 @@ class AttachmentInfo:
 def _collect_attachment_ids(markdown: str) -> set[str]:
     """Return the set of attachment IDs referenced in *markdown*."""
     return set(_ATTACHMENT_URL_RE.findall(markdown))
+
+
+_EXIF_TRANSPOSE_EXTENSIONS = {".jpg", ".jpeg", ".tif", ".tiff", ".png", ".webp"}
+
+
+def _apply_exif_transpose(path: Path) -> None:
+    """Rotate an image file in-place according to its EXIF orientation tag.
+
+    After this call the pixel data matches the intended display orientation and
+    the EXIF orientation tag (if any) is reset.  This is a no-op for images
+    without an orientation tag or for non-image files.
+    """
+    if path.suffix.lower() not in _EXIF_TRANSPOSE_EXTENSIONS:
+        return
+    try:
+        with Image.open(path) as img:
+            transposed = ImageOps.exif_transpose(img)
+            if transposed is not img:
+                transposed.save(path)
+    except Exception:
+        logger.debug("EXIF transpose skipped for %s", path, exc_info=True)
 
 
 def _convert_svg_to_pdf(src: Path, dest: Path) -> None:
@@ -160,6 +182,7 @@ def _stage_attachments(
         else:
             target_path = att_dir / target_name
             shutil.copy2(info.storage_path, target_path)
+            _apply_exif_transpose(target_path)
             id_to_relpath[att_id] = f"{subdir}/{target_name}"
 
     def _replace(m: re.Match[str]) -> str:
