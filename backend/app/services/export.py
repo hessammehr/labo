@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import io
+import logging
 import re
 import shutil
 import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
+
+import cairosvg
+
+logger = logging.getLogger(__name__)
 
 from app.services.markdown import blocks_to_markdown
 
@@ -68,6 +73,11 @@ def _collect_attachment_ids(markdown: str) -> set[str]:
     return set(_ATTACHMENT_URL_RE.findall(markdown))
 
 
+def _convert_svg_to_pdf(src: Path, dest: Path) -> None:
+    """Convert an SVG file to PDF using cairosvg."""
+    cairosvg.svg2pdf(url=str(src), write_to=str(dest))
+
+
 def _stage_attachments(
     markdown: str,
     attachments: list[AttachmentInfo],
@@ -75,6 +85,7 @@ def _stage_attachments(
     *,
     subdir: str = "attachments",
     _referenced_ids: set[str] | None = None,
+    convert_svg: bool = False,
 ) -> str:
     """Copy referenced attachment files into *dest_dir/subdir* and rewrite
     the ``/api/attachments/<id>`` URLs to use relative paths.
@@ -84,6 +95,9 @@ def _stage_attachments(
     If *_referenced_ids* is provided it is used instead of scanning *markdown*
     for attachment URLs (useful when the text has already been converted to
     another format but still contains the same URL patterns).
+
+    When *convert_svg* is ``True``, any ``.svg`` attachments are converted to
+    PDF via cairosvg so that pdflatex can embed them.
     """
     referenced_ids = _referenced_ids if _referenced_ids is not None else _collect_attachment_ids(markdown)
     if not referenced_ids:
@@ -119,9 +133,34 @@ def _stage_attachments(
         if info is None or not info.storage_path.exists():
             continue
         target_name = _unique_name(info.filename)
-        target_path = att_dir / target_name
-        shutil.copy2(info.storage_path, target_path)
-        id_to_relpath[att_id] = f"{subdir}/{target_name}"
+
+        # Convert SVG → PDF when targeting a LaTeX-based output format
+        if convert_svg and Path(target_name).suffix.lower() == ".svg":
+            pdf_name = Path(target_name).with_suffix(".pdf").name
+            # Ensure uniqueness for the converted name too
+            if pdf_name in used_filenames:
+                pdf_name = _unique_name(pdf_name)
+            else:
+                used_filenames.add(pdf_name)
+            target_path = att_dir / pdf_name
+            try:
+                _convert_svg_to_pdf(info.storage_path, target_path)
+            except Exception:
+                logger.warning(
+                    "Failed to convert SVG attachment %s to PDF; "
+                    "falling back to original file",
+                    att_id,
+                    exc_info=True,
+                )
+                target_path = att_dir / target_name
+                shutil.copy2(info.storage_path, target_path)
+                id_to_relpath[att_id] = f"{subdir}/{target_name}"
+                continue
+            id_to_relpath[att_id] = f"{subdir}/{pdf_name}"
+        else:
+            target_path = att_dir / target_name
+            shutil.copy2(info.storage_path, target_path)
+            id_to_relpath[att_id] = f"{subdir}/{target_name}"
 
     def _replace(m: re.Match[str]) -> str:
         att_id = m.group(1)
@@ -182,7 +221,10 @@ def convert_with_pandoc(
 
     with tempfile.TemporaryDirectory() as tmpdir:
         work = Path(tmpdir)
-        resolved_md = _stage_attachments(markdown, attachments, work)
+        resolved_md = _stage_attachments(
+            markdown, attachments, work,
+            convert_svg=(fmt == "pdf"),
+        )
 
         cmd = ["pandoc", "-f", "markdown", "-t", pandoc_to]
         if standalone and fmt != "pdf":
