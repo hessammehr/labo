@@ -252,6 +252,9 @@ def convert_with_pandoc(
         cmd = ["pandoc", "-f", "markdown", "-t", pandoc_to]
         if standalone and fmt != "pdf":
             cmd.append("-s")
+        if fmt == "html":
+            # Embed images as base64 data URIs so the HTML is self-contained.
+            cmd.append("--embed-resources")
         cmd.extend(["--resource-path", str(work)])
 
         if fmt == "pdf":

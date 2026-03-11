@@ -1,13 +1,15 @@
 """Tests for the export service, focusing on SVG → PDF conversion and EXIF handling."""
 
+import base64
 from pathlib import Path
+import shutil
 import struct
 import tempfile
 
 import pytest
 from PIL import Image
 
-from app.services.export import AttachmentInfo, _stage_attachments
+from app.services.export import AttachmentInfo, _stage_attachments, convert_with_pandoc
 
 
 SIMPLE_SVG = (
@@ -147,3 +149,43 @@ class TestExifTranspose:
 
             staged = dest / "attachments" / "notes.txt"
             assert staged.read_text() == "hello world"
+
+
+_need_pandoc = pytest.mark.skipif(
+    shutil.which("pandoc") is None,
+    reason="pandoc not installed",
+)
+
+
+@_need_pandoc
+class TestHtmlEmbedResources:
+    """HTML export should embed images as data URIs, not external file refs."""
+
+    def test_png_embedded_as_data_uri(self, tmp_path: Path):
+        """A referenced PNG should appear as a base64 data URI in the HTML."""
+        # Create a real 1×1 red PNG with Pillow
+        png_path = tmp_path / "dot.png"
+        Image.new("RGB", (1, 1), "red").save(str(png_path), "PNG")
+
+        att = AttachmentInfo(id="aa0011", filename="dot.png", storage_path=png_path)
+        md = "![red dot](/api/attachments/aa0011)"
+
+        html = convert_with_pandoc(md, "html", [att]).decode("utf-8")
+
+        assert "data:image/png;base64," in html
+        # The relative file path should NOT appear – everything is inlined
+        assert "attachments/dot.png" not in html
+
+    def test_svg_embedded_as_data_uri(self, tmp_path: Path):
+        """A referenced SVG should be inlined in the HTML export."""
+        svg_path = tmp_path / "circle.svg"
+        svg_path.write_text(SIMPLE_SVG)
+
+        att = AttachmentInfo(id="bb2233", filename="circle.svg", storage_path=svg_path)
+        md = "![circle](/api/attachments/bb2233)"
+
+        html = convert_with_pandoc(md, "html", [att]).decode("utf-8")
+
+        # SVG should be inlined as a data URI
+        assert "data:image/svg+xml" in html
+        assert "attachments/circle.svg" not in html
