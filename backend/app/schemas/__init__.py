@@ -139,6 +139,38 @@ class UserSearchResult(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Scoped Tokens ---
+
+class ScopedTokenCreate(BaseModel):
+    resource_type: str  # "notebook" | "entry"
+    resource_id: str
+    access_level: str  # "read" | "readwrite"
+    label: str = ""
+
+
+class ScopedTokenOut(BaseModel):
+    id: str
+    token_prefix: str
+    label: str
+    resource_type: str
+    resource_id: str
+    access_level: str
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class ScopedTokenCreated(ScopedTokenOut):
+    """Returned only at creation time — includes the full token (shown once)."""
+    token: str
+
+
+class ScopedTokenUpdate(BaseModel):
+    access_level: str | None = None  # "read" | "readwrite"
+    label: str | None = None
+
+
 # --- Attachments ---
 
 class AttachmentOut(BaseModel):

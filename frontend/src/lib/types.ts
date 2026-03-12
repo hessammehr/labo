@@ -46,3 +46,18 @@ export type UserSearchResult = {
   name: string;
   email: string;
 };
+
+export type ScopedToken = {
+  id: string;
+  token_prefix: string;
+  label: string;
+  resource_type: string;
+  resource_id: string;
+  access_level: "read" | "readwrite";
+  created_at: string;
+  last_used_at: string | null;
+};
+
+export type ScopedTokenCreated = ScopedToken & {
+  token: string;
+};

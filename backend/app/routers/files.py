@@ -1,0 +1,323 @@
+"""Token-scoped file I/O API for programmatic access.
+
+Paths are resolved relative to the token's scoped resource:
+  - Notebook-scoped: {entry_title}/{filename}
+  - Entry-scoped:    {filename}
+
+Supports streaming reads and chunked streaming writes.
+"""
+
+import mimetypes
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
+
+from app.core.config import settings
+from app.core.database import get_db
+from app.core.events import IoEvent, event_hub
+from app.core.security import hash_api_key
+from app.models import Attachment, Entry, Notebook, ScopedToken
+
+router = APIRouter(prefix="/v1/files", tags=["files"])
+
+STREAM_CHUNK_SIZE = 64 * 1024  # 64 KB
+
+
+def _resolve_token(db: Session, authorization: str | None) -> ScopedToken:
+    """Extract and validate a Bearer token from the Authorization header."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+
+    raw_token = authorization[7:]
+    token_hash = hash_api_key(raw_token)
+    token = db.query(ScopedToken).filter(ScopedToken.token_hash == token_hash).first()
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+    # Update last_used_at
+    token.last_used_at = datetime.now(timezone.utc)
+    db.commit()
+
+    return token
+
+
+def _resolve_path(
+    db: Session,
+    token: ScopedToken,
+    path: str,
+) -> tuple[Entry, Attachment | None]:
+    """Resolve a path string to an Entry and optionally an Attachment.
+
+    Returns (entry, attachment) where attachment is None for directory-level access.
+    """
+    parts = path.strip("/").split("/") if path.strip("/") else []
+
+    if token.resource_type == "notebook":
+        notebook = db.query(Notebook).filter(Notebook.id == token.resource_id).first()
+        if not notebook:
+            raise HTTPException(status_code=404, detail="Notebook not found")
+
+        if len(parts) == 0:
+            # Listing notebook — handled by list endpoint
+            raise HTTPException(status_code=400, detail="Path must include at least an entry title")
+
+        entry_title = parts[0]
+        entry = (
+            db.query(Entry)
+            .filter(Entry.notebook_id == notebook.id, Entry.title == entry_title)
+            .first()
+        )
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Entry '{entry_title}' not found")
+
+        if len(parts) == 1:
+            return entry, None
+
+        filename = "/".join(parts[1:])
+        attachment = (
+            db.query(Attachment)
+            .filter(Attachment.entry_id == entry.id, Attachment.filename == filename)
+            .first()
+        )
+        return entry, attachment
+
+    elif token.resource_type == "entry":
+        entry = db.query(Entry).filter(Entry.id == token.resource_id).first()
+        if not entry:
+            raise HTTPException(status_code=404, detail="Entry not found")
+
+        if len(parts) == 0:
+            return entry, None
+
+        filename = "/".join(parts)
+        attachment = (
+            db.query(Attachment)
+            .filter(Attachment.entry_id == entry.id, Attachment.filename == filename)
+            .first()
+        )
+        return entry, attachment
+
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported resource type")
+
+
+@router.get("/{path:path}")
+def read_file(
+    path: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Read a file or list directory contents."""
+    token = _resolve_token(db, request.headers.get("authorization"))
+    entry, attachment = _resolve_path(db, token, path)
+
+    # Directory listing
+    if attachment is None:
+        if token.resource_type == "notebook" and not path.strip("/"):
+            # List entries in notebook
+            notebook = db.query(Notebook).filter(Notebook.id == token.resource_id).first()
+            entries = db.query(Entry).filter(Entry.notebook_id == notebook.id).all()
+            return [{"name": e.title, "type": "entry"} for e in entries]
+        else:
+            # List attachments in entry
+            attachments = db.query(Attachment).filter(Attachment.entry_id == entry.id).all()
+            return [
+                {"name": a.filename, "type": "file", "size": a.size, "mime_type": a.mime_type}
+                for a in attachments
+            ]
+
+    # File read — stream it
+    file_path = Path(attachment.storage_uri)
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File not found on disk")
+
+    # Emit read event
+    event_hub.publish(
+        token.created_by,
+        IoEvent(
+            resource_type=token.resource_type,
+            resource_id=token.resource_id,
+            entry_id=entry.id,
+            filename=attachment.filename,
+            direction="read",
+        ),
+    )
+
+    def iterfile():
+        with open(file_path, "rb") as f:
+            while chunk := f.read(STREAM_CHUNK_SIZE):
+                yield chunk
+
+    return StreamingResponse(
+        iterfile(),
+        media_type=attachment.mime_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{attachment.filename}"',
+            "Content-Length": str(attachment.size),
+        },
+    )
+
+
+@router.put("/{path:path}", status_code=status.HTTP_201_CREATED)
+async def write_file(
+    path: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Write (create or overwrite) a file via streaming upload.
+
+    Send the file body directly as the request body (not multipart).
+    Set Content-Type to the file's MIME type.
+    """
+    token = _resolve_token(db, request.headers.get("authorization"))
+
+    if token.access_level != "readwrite":
+        raise HTTPException(status_code=403, detail="Token does not have write access")
+
+    # Parse the path to find entry + filename
+    parts = path.strip("/").split("/") if path.strip("/") else []
+    if not parts:
+        raise HTTPException(status_code=400, detail="Path must include a filename")
+
+    if token.resource_type == "notebook":
+        if len(parts) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="Notebook-scoped path must be entry_title/filename",
+            )
+        entry_title = parts[0]
+        filename = "/".join(parts[1:])
+
+        notebook = db.query(Notebook).filter(Notebook.id == token.resource_id).first()
+        if not notebook:
+            raise HTTPException(status_code=404, detail="Notebook not found")
+
+        entry = (
+            db.query(Entry)
+            .filter(Entry.notebook_id == notebook.id, Entry.title == entry_title)
+            .first()
+        )
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Entry '{entry_title}' not found")
+
+    elif token.resource_type == "entry":
+        filename = "/".join(parts)
+        entry = db.query(Entry).filter(Entry.id == token.resource_id).first()
+        if not entry:
+            raise HTTPException(status_code=404, detail="Entry not found")
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported resource type")
+
+    # Stream request body to disk
+    entry_dir = settings.storage_dir / entry.id
+    entry_dir.mkdir(parents=True, exist_ok=True)
+    storage_path = entry_dir / filename
+
+    total_size = 0
+    max_size = 50 * 1024 * 1024  # 50 MB
+
+    with open(storage_path, "wb") as f:
+        async for chunk in request.stream():
+            total_size += len(chunk)
+            if total_size > max_size:
+                f.close()
+                storage_path.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
+            f.write(chunk)
+
+    # Determine MIME type
+    content_type = request.headers.get("content-type", "")
+    if not content_type or content_type == "application/octet-stream":
+        guessed, _ = mimetypes.guess_type(filename)
+        content_type = guessed or "application/octet-stream"
+
+    # Classify attachment type
+    if content_type.startswith("image/"):
+        att_type = "image"
+    elif filename.lower().endswith((".xlsx", ".xls", ".csv")):
+        att_type = "excel"
+    else:
+        att_type = "file"
+
+    # Upsert attachment record
+    existing = (
+        db.query(Attachment)
+        .filter(Attachment.entry_id == entry.id, Attachment.filename == filename)
+        .first()
+    )
+
+    if existing:
+        existing.size = total_size
+        existing.mime_type = content_type
+        existing.type = att_type
+        existing.storage_uri = str(storage_path)
+        db.commit()
+        db.refresh(existing)
+        result = {
+            "id": existing.id,
+            "filename": existing.filename,
+            "size": existing.size,
+            "mime_type": existing.mime_type,
+            "status": "updated",
+        }
+    else:
+        attachment = Attachment(
+            entry_id=entry.id,
+            type=att_type,
+            filename=filename,
+            mime_type=content_type,
+            size=total_size,
+            storage_uri=str(storage_path),
+        )
+        db.add(attachment)
+        db.commit()
+        db.refresh(attachment)
+        result = {
+            "id": attachment.id,
+            "filename": attachment.filename,
+            "size": attachment.size,
+            "mime_type": attachment.mime_type,
+            "status": "created",
+        }
+
+    # Emit write event
+    event_hub.publish(
+        token.created_by,
+        IoEvent(
+            resource_type=token.resource_type,
+            resource_id=token.resource_id,
+            entry_id=entry.id,
+            filename=filename,
+            direction="write",
+        ),
+    )
+
+    return result
+
+
+@router.delete("/{path:path}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_file(
+    path: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Delete a file."""
+    token = _resolve_token(db, request.headers.get("authorization"))
+
+    if token.access_level != "readwrite":
+        raise HTTPException(status_code=403, detail="Token does not have write access")
+
+    entry, attachment = _resolve_path(db, token, path)
+
+    if attachment is None:
+        raise HTTPException(status_code=400, detail="Path must point to a file, not a directory")
+
+    file_path = Path(attachment.storage_uri)
+    if file_path.exists():
+        file_path.unlink()
+
+    db.delete(attachment)
+    db.commit()

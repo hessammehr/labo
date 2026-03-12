@@ -146,3 +146,21 @@ class ApiKey(Base):
     last_used_at = Column(DateTime(timezone=True), nullable=True)
 
     user = relationship("User")
+
+
+class ScopedToken(Base):
+    """A token granting scoped access to a specific notebook or entry."""
+    __tablename__ = "scoped_tokens"
+
+    id = Column(String(32), primary_key=True, default=_new_id)
+    created_by = Column(String(32), ForeignKey("users.id"), nullable=False)
+    token_hash = Column(String(255), nullable=False, unique=True)
+    token_prefix = Column(String(12), nullable=False)  # e.g. "labo_ab3f…" for display
+    label = Column(String(255), nullable=False, default="")
+    resource_type = Column(Enum("notebook", "entry", name="scoped_token_resource_type"), nullable=False)
+    resource_id = Column(String(32), nullable=False, index=True)
+    access_level = Column(Enum("read", "readwrite", name="scoped_token_access"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    creator = relationship("User")

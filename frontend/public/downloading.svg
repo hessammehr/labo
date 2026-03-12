@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 48" width="40" height="48">
+  <style>
+    @keyframes flow {
+      0%   { transform: translateY(-16px) scaleX(0.75); opacity: 0; }
+      15%  { opacity: 0.4; }
+      33%  { transform: translateY(0px) scaleX(0.75); opacity: 0.4; }
+      50%  { transform: translateY(8px) scaleX(1); opacity: 1; }
+      67%  { transform: translateY(16px) scaleX(0.75); opacity: 0.4; }
+      85%  { opacity: 0; }
+      100% { transform: translateY(32px) scaleX(0.75); opacity: 0; }
+    }
+    .chevron {
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 3;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transform-origin: 20px 20px;
+      animation: flow 1.8s ease-in-out infinite;
+    }
+  </style>
+
+  <polyline class="chevron" points="8,14 20,24 32,14"
+    style="animation-delay: 0s;" />
+  <polyline class="chevron" points="8,14 20,24 32,14"
+    style="animation-delay: -0.6s;" />
+  <polyline class="chevron" points="8,14 20,24 32,14"
+    style="animation-delay: -1.2s;" />
+</svg>

@@ -17,6 +17,7 @@ import {
   FileText,
   History,
   Image,
+  Key,
   Paperclip,
   Pencil,
   Plus,
@@ -28,7 +29,9 @@ import {
 import { EntryEditorForm, type AttachmentDropData } from "../components/EntryEditorForm";
 import { LabBook, LabBookPlus } from "../components/icons";
 import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
+import { ApiAccessModal } from "../components/ApiAccessModal";
 import { ShareModal } from "../components/ShareModal";
+import { useIoEvents } from "../lib/useIoEvents";
 import { api } from "../lib/api";
 import type { Attachment, Entry, Notebook } from "../lib/types";
 
@@ -68,6 +71,13 @@ type RenameState =
 
 export function WorkspacePage() {
   const queryClient = useQueryClient();
+  const { indicators: ioIndicators, activeEntries: ioActiveEntries } = useIoEvents(
+    (event) => {
+      if (event.direction === "write") {
+        void queryClient.invalidateQueries({ queryKey: ["attachments", "entry", event.entry_id] });
+      }
+    }
+  );
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [editorGeneration, setEditorGeneration] = useState(0);
   const [previewRevision, setPreviewRevision] = useState<Revision | null>(null);
@@ -86,6 +96,11 @@ export function WorkspacePage() {
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
   const [shareModal, setShareModal] = useState<{
     resourceId: string;
+    resourceName: string;
+  } | null>(null);
+  const [apiAccessModal, setApiAccessModal] = useState<{
+    resourceId: string;
+    resourceType: "notebook" | "entry";
     resourceName: string;
   } | null>(null);
 
@@ -759,6 +774,17 @@ export function WorkspacePage() {
                             {entry.title}
                           </button>
                         )}
+
+                        {/* I/O activity indicators */}
+                        {ioIndicators[entry.id] ? (
+                          <img
+                            src={ioIndicators[entry.id].direction === "write" ? "/downloading.svg" : "/uploading.svg"}
+                            alt={ioIndicators[entry.id].direction === "write" ? "Writing" : "Reading"}
+                            className="ml-auto shrink-0 h-4 w-4"
+                          />
+                        ) : ioActiveEntries.has(entry.id) ? (
+                          <span className="ml-auto shrink-0 text-[10px] text-amber-500" title="API-connected">⇄</span>
+                        ) : null}
                       </div>
 
                       {/* Attachments nested under entry */}
@@ -1074,6 +1100,20 @@ export function WorkspacePage() {
               >
                 <Share2 size={14} /> Share…
               </button>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  const notebook = orderedNotebooks.find((n) => n.id === contextMenu.notebookId);
+                  setContextMenu(null);
+                  setApiAccessModal({
+                    resourceId: contextMenu.notebookId,
+                    resourceType: "notebook",
+                    resourceName: notebook?.title ?? "Notebook",
+                  });
+                }}
+              >
+                <Key size={14} /> API Access…
+              </button>
               {/* Export submenu for notebook */}
               <div className="group/export relative">
                 <div className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-default">
@@ -1139,6 +1179,19 @@ export function WorkspacePage() {
                   <Pencil size={14} /> Rename
                 </button>
               )}
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setContextMenu(null);
+                  setApiAccessModal({
+                    resourceId: contextMenu.entryId,
+                    resourceType: "entry",
+                    resourceName: menuEntry?.title ?? "Entry",
+                  });
+                }}
+              >
+                <Key size={14} /> API Access…
+              </button>
               {/* Export submenu for entry */}
               <div className="group/export relative">
                 <div className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800 cursor-default">
@@ -1219,6 +1272,15 @@ export function WorkspacePage() {
           resourceId={shareModal.resourceId}
           resourceName={shareModal.resourceName}
           onClose={() => setShareModal(null)}
+        />
+      )}
+
+      {apiAccessModal && (
+        <ApiAccessModal
+          resourceId={apiAccessModal.resourceId}
+          resourceType={apiAccessModal.resourceType}
+          resourceName={apiAccessModal.resourceName}
+          onClose={() => setApiAccessModal(null)}
         />
       )}
     </div>
