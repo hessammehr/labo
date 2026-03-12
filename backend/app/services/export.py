@@ -61,15 +61,22 @@ EXPORT_FORMATS: dict[str, dict[str, str]] = {
 class AttachmentInfo:
     """Metadata for a single attachment needed during export."""
 
-    __slots__ = ("id", "filename", "storage_path")
+    __slots__ = ("id", "filename", "storage_path", "entry_title")
 
-    def __init__(self, id: str, filename: str, storage_path: Path) -> None:
+    def __init__(
+        self,
+        id: str,
+        filename: str,
+        storage_path: Path,
+        entry_title: str | None = None,
+    ) -> None:
         self.id = id
         self.filename = filename
         self.storage_path = storage_path
+        self.entry_title = entry_title
 
 
-def _collect_attachment_ids(markdown: str) -> set[str]:
+def collect_attachment_ids(markdown: str) -> set[str]:
     """Return the set of attachment IDs referenced in *markdown*."""
     return set(_ATTACHMENT_URL_RE.findall(markdown))
 
@@ -114,6 +121,10 @@ def _stage_attachments(
 
     Returns the rewritten text.
 
+    When an attachment has ``entry_title`` set, it is placed under
+    ``subdir/<entry_title>/`` to avoid filename clashes across entries in
+    notebook exports.
+
     If *_referenced_ids* is provided it is used instead of scanning *markdown*
     for attachment URLs (useful when the text has already been converted to
     another format but still contains the same URL patterns).
@@ -121,32 +132,12 @@ def _stage_attachments(
     When *convert_svg* is ``True``, any ``.svg`` attachments are converted to
     PDF via cairosvg so that pdflatex can embed them.
     """
-    referenced_ids = _referenced_ids if _referenced_ids is not None else _collect_attachment_ids(markdown)
+    referenced_ids = _referenced_ids if _referenced_ids is not None else collect_attachment_ids(markdown)
     if not referenced_ids:
         return markdown
 
-    att_dir = dest_dir / subdir
-    att_dir.mkdir(parents=True, exist_ok=True)
-
     # Build lookup: id → AttachmentInfo
     lookup = {a.id: a for a in attachments}
-
-    # De-duplicate target filenames within this export
-    used_filenames: set[str] = set()
-
-    def _unique_name(name: str) -> str:
-        if name not in used_filenames:
-            used_filenames.add(name)
-            return name
-        stem = Path(name).stem
-        suffix = Path(name).suffix
-        n = 1
-        while True:
-            candidate = f"{stem}_{n}{suffix}"
-            if candidate not in used_filenames:
-                used_filenames.add(candidate)
-                return candidate
-            n += 1
 
     id_to_relpath: dict[str, str] = {}
 
@@ -154,16 +145,20 @@ def _stage_attachments(
         info = lookup.get(att_id)
         if info is None or not info.storage_path.exists():
             continue
-        target_name = _unique_name(info.filename)
+
+        # Namespace by entry title when set (notebook exports) to avoid
+        # filename clashes across entries.
+        if info.entry_title:
+            att_dir = dest_dir / subdir / info.entry_title
+        else:
+            att_dir = dest_dir / subdir
+        att_dir.mkdir(parents=True, exist_ok=True)
+
+        target_name = info.filename
 
         # Convert SVG → PDF when targeting a LaTeX-based output format
         if convert_svg and Path(target_name).suffix.lower() == ".svg":
             pdf_name = Path(target_name).with_suffix(".pdf").name
-            # Ensure uniqueness for the converted name too
-            if pdf_name in used_filenames:
-                pdf_name = _unique_name(pdf_name)
-            else:
-                used_filenames.add(pdf_name)
             target_path = att_dir / pdf_name
             try:
                 _convert_svg_to_pdf(info.storage_path, target_path)
@@ -176,14 +171,14 @@ def _stage_attachments(
                 )
                 target_path = att_dir / target_name
                 shutil.copy2(info.storage_path, target_path)
-                id_to_relpath[att_id] = f"{subdir}/{target_name}"
+                id_to_relpath[att_id] = str(target_path.relative_to(dest_dir))
                 continue
-            id_to_relpath[att_id] = f"{subdir}/{pdf_name}"
+            id_to_relpath[att_id] = str(target_path.relative_to(dest_dir))
         else:
             target_path = att_dir / target_name
             shutil.copy2(info.storage_path, target_path)
             _apply_exif_transpose(target_path)
-            id_to_relpath[att_id] = f"{subdir}/{target_name}"
+            id_to_relpath[att_id] = str(target_path.relative_to(dest_dir))
 
     def _replace(m: re.Match[str]) -> str:
         att_id = m.group(1)
@@ -338,7 +333,7 @@ def export_text_zip(
         # Stage attachments using the original markdown URLs, then apply the
         # same URL rewrites to the output text.
         resolved = _stage_attachments(text, attachments, work,
-                                      _referenced_ids=_collect_attachment_ids(markdown_for_refs))
+                                      _referenced_ids=collect_attachment_ids(markdown_for_refs))
         (work / filename).write_text(resolved, encoding="utf-8")
         return _zip_directory(work)
 
@@ -347,26 +342,23 @@ def export_attachments_zip(
     attachments: list[AttachmentInfo],
     basename: str,
 ) -> bytes:
-    """Create a zip containing only the attachment files."""
+    """Create a zip containing only the attachment files.
+
+    When attachments carry an ``entry_title``, files are placed under
+    ``attachments/<entry_title>/`` to avoid clashes across entries.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
         work = Path(tmpdir) / basename
-        att_dir = work / "attachments"
-        att_dir.mkdir(parents=True)
 
-        used: set[str] = set()
         for att in attachments:
             if not att.storage_path.exists():
                 continue
-            name = att.filename
-            if name in used:
-                stem = Path(name).stem
-                suffix = Path(name).suffix
-                n = 1
-                while f"{stem}_{n}{suffix}" in used:
-                    n += 1
-                name = f"{stem}_{n}{suffix}"
-            used.add(name)
-            shutil.copy2(att.storage_path, att_dir / name)
+            if att.entry_title:
+                att_dir = work / "attachments" / att.entry_title
+            else:
+                att_dir = work / "attachments"
+            att_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(att.storage_path, att_dir / att.filename)
 
         return _zip_directory(work)
 
@@ -387,7 +379,7 @@ def export_document(
     if fmt == "attachments":
         return export_attachments_zip(attachments, basename), True
 
-    has_refs = bool(_collect_attachment_ids(markdown) & {a.id for a in attachments})
+    has_refs = bool(collect_attachment_ids(markdown) & {a.id for a in attachments})
 
     if fmt == "md":
         if has_refs:
