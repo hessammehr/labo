@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import io
+import queue
+import threading
 from contextlib import contextmanager
 from os import PathLike
 from typing import IO, Generator, Iterator, Literal, overload
@@ -261,7 +263,9 @@ class _BytesReadStream:
     def __init__(self, resource: Resource) -> None:
         self._resource = resource
         self._response: httpx.Response | None = None
-        self._stream = None
+        self._stream: Iterator[bytes] | None = None
+        self._leftover = bytearray()
+        self._exhausted = False
 
     def __enter__(self) -> _BytesReadStream:
         client = self._resource._get_client()
@@ -278,18 +282,28 @@ class _BytesReadStream:
             self._response.close()
 
     def read(self, n: int = -1) -> bytes:
-        """Read up to n bytes, or all remaining if n < 0."""
+        """Read up to *n* bytes, or all remaining if *n* < 0.
+
+        Returns ``b""`` when the stream is exhausted (EOF).
+        """
         if self._stream is None:
             raise RuntimeError("Stream not open — use as context manager")
         if n < 0:
-            return b"".join(self._stream)
-        # Accumulate up to n bytes
-        buf = bytearray()
-        for chunk in self._stream:
-            buf.extend(chunk)
-            if len(buf) >= n:
-                break
-        return bytes(buf[:n])
+            parts = [bytes(self._leftover)] if self._leftover else []
+            self._leftover.clear()
+            parts.extend(self._stream)
+            self._exhausted = True
+            return b"".join(parts)
+        # Serve from leftover buffer + stream until we have n bytes or EOF
+        buf = self._leftover
+        while len(buf) < n and not self._exhausted:
+            try:
+                buf.extend(next(self._stream))
+            except StopIteration:
+                self._exhausted = True
+        result = bytes(buf[:n])
+        self._leftover = buf[n:]
+        return result
 
     def __iter__(self) -> Iterator[bytes]:
         if self._stream is None:
@@ -322,46 +336,107 @@ class _TextReadStream:
 class _BytesWriteStream:
     """Streaming binary writer using chunked transfer encoding.
 
-    Data is sent incrementally via a pipe: writes push bytes into a
-    ``BytesIO``-backed buffer that is flushed to the server in chunks
-    when the context manager exits. For true streaming, we use httpx's
-    content generator support.
+    Data is streamed to the server incrementally via a background thread.
+    The write buffer is flushed when it reaches *chunk_size* or when
+    *flush_interval* seconds have elapsed since the last write —
+    whichever comes first — so even slow writers don't hold data back
+    for too long.
     """
 
-    def __init__(self, resource: Resource) -> None:
+    def __init__(
+        self,
+        resource: Resource,
+        *,
+        chunk_size: int = _DEFAULT_CHUNK,
+        flush_interval: float = 0.5,
+    ) -> None:
         self._resource = resource
-        self._chunks: list[bytes] = []
+        self._chunk_size = chunk_size
+        self._flush_interval = flush_interval
+        self._queue: queue.Queue[bytes | None] = queue.Queue()
+        self._buf = bytearray()
+        self._buf_lock = threading.Lock()
         self._closed = False
+        self._thread: threading.Thread | None = None
+        self._timer: threading.Timer | None = None
+        self._error: BaseException | None = None
 
     def __enter__(self) -> _BytesWriteStream:
+        self._thread = threading.Thread(target=self._upload, daemon=True)
+        self._thread.start()
         return self
 
     def __exit__(self, *exc) -> None:
         if not self._closed:
-            self._flush()
+            self._closed = True
+            with self._buf_lock:
+                self._cancel_timer()
+                if self._buf:
+                    self._queue.put(bytes(self._buf))
+                    self._buf.clear()
+            self._queue.put(None)  # sentinel — tells generator to stop
+        if self._thread is not None:
+            self._thread.join()
+        if self._error is not None:
+            raise self._error
 
     def write(self, data: bytes) -> int:
         if self._closed:
             raise RuntimeError("Stream is closed")
-        self._chunks.append(data)
+        if self._error is not None:
+            raise self._error
+        with self._buf_lock:
+            self._buf.extend(data)
+            if len(self._buf) >= self._chunk_size:
+                self._cancel_timer()
+                self._queue.put(bytes(self._buf))
+                self._buf.clear()
+            else:
+                self._reset_timer()
         return len(data)
 
-    def _flush(self) -> None:
-        self._closed = True
+    # -- internal helpers ----------------------------------------------------
 
-        def generate() -> Generator[bytes, None, None]:
-            yield from self._chunks
+    def _reset_timer(self) -> None:
+        self._cancel_timer()
+        self._timer = threading.Timer(self._flush_interval, self._timer_flush)
+        self._timer.daemon = True
+        self._timer.start()
 
-        client = self._resource._get_client()
-        resp = client.put(
-            self._resource._url,
-            content=generate(),
-            headers={
-                "Content-Type": "application/octet-stream",
-                "Transfer-Encoding": "chunked",
-            },
-        )
-        resp.raise_for_status()
+    def _cancel_timer(self) -> None:
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+
+    def _timer_flush(self) -> None:
+        """Called by the timer thread when flush_interval expires."""
+        with self._buf_lock:
+            self._timer = None
+            if self._buf:
+                self._queue.put(bytes(self._buf))
+                self._buf.clear()
+
+    def _generate(self) -> Generator[bytes, None, None]:
+        while True:
+            chunk = self._queue.get()
+            if chunk is None:
+                break
+            yield chunk
+
+    def _upload(self) -> None:
+        try:
+            client = self._resource._get_client()
+            resp = client.put(
+                self._resource._url,
+                content=self._generate(),
+                headers={
+                    "Content-Type": "application/octet-stream",
+                    "Transfer-Encoding": "chunked",
+                },
+            )
+            resp.raise_for_status()
+        except BaseException as e:
+            self._error = e
 
 
 class _TextWriteStream:

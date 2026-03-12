@@ -8,6 +8,7 @@ Supports streaming reads and chunked streaming writes.
 """
 
 import mimetypes
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -211,13 +212,16 @@ async def write_file(
     else:
         raise HTTPException(status_code=400, detail="Unsupported resource type")
 
-    # Stream request body to disk
+    # Stream request body to disk, emitting periodic SSE events so the
+    # UI shows upload activity throughout (not just at the end).
     entry_dir = settings.storage_dir / entry.id
     entry_dir.mkdir(parents=True, exist_ok=True)
     storage_path = entry_dir / filename
 
     total_size = 0
     max_size = 50 * 1024 * 1024  # 50 MB
+    last_event_at = 0.0
+    event_interval = 0.5  # seconds — throttle to avoid flooding SSE
 
     with open(storage_path, "wb") as f:
         async for chunk in request.stream():
@@ -227,6 +231,20 @@ async def write_file(
                 storage_path.unlink(missing_ok=True)
                 raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
             f.write(chunk)
+
+            now = time.monotonic()
+            if now - last_event_at >= event_interval:
+                last_event_at = now
+                event_hub.publish(
+                    token.created_by,
+                    IoEvent(
+                        resource_type=token.resource_type,
+                        resource_id=token.resource_id,
+                        entry_id=entry.id,
+                        filename=filename,
+                        direction="write",
+                    ),
+                )
 
     # Determine MIME type
     content_type = request.headers.get("content-type", "")
