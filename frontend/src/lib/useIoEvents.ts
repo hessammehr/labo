@@ -14,14 +14,17 @@ type ActiveIndicator = {
   expiresAt: number;
 };
 
+/** Unique key for a specific file. */
+export function ioKey(entryId: string, filename: string) {
+  return `${entryId}/${filename}`;
+}
+
 /**
  * Subscribe to the SSE I/O event stream and maintain a map of
- * entry_id → active indicator (read/write animation, auto-expires).
+ * entryId/filename → active indicator (read/write animation, auto-expires).
  */
 export function useIoEvents(onEvent?: (event: IoEvent) => void) {
-  // entry_id → indicator state
   const [indicators, setIndicators] = useState<Record<string, ActiveIndicator>>({});
-  const [activeEntries, setActiveEntries] = useState<Set<string>>(new Set());
   const eventSourceRef = useRef<EventSource | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const onEventRef = useRef(onEvent);
@@ -36,20 +39,15 @@ export function useIoEvents(onEvent?: (event: IoEvent) => void) {
         const data: IoEvent = JSON.parse(event.data);
         const now = Date.now();
         const duration = 1200; // ms to show the animation
+        const key = ioKey(data.entry_id, data.filename);
 
         setIndicators((prev) => ({
           ...prev,
-          [data.entry_id]: {
+          [key]: {
             direction: data.direction,
             expiresAt: now + duration,
           },
         }));
-
-        setActiveEntries((prev) => {
-          const next = new Set(prev);
-          next.add(data.entry_id);
-          return next;
-        });
 
         onEventRef.current?.(data);
       } catch {
@@ -84,5 +82,5 @@ export function useIoEvents(onEvent?: (event: IoEvent) => void) {
     };
   }, []);
 
-  return { indicators, activeEntries };
+  return { indicators };
 }

@@ -31,7 +31,7 @@ import { LabBook, LabBookPlus } from "../components/icons";
 import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
 import { ApiAccessModal } from "../components/ApiAccessModal";
 import { ShareModal } from "../components/ShareModal";
-import { useIoEvents } from "../lib/useIoEvents";
+import { useIoEvents, ioKey } from "../lib/useIoEvents";
 import { api } from "../lib/api";
 import type { Attachment, Entry, Notebook } from "../lib/types";
 
@@ -71,7 +71,7 @@ type RenameState =
 
 export function WorkspacePage() {
   const queryClient = useQueryClient();
-  const { indicators: ioIndicators, activeEntries: ioActiveEntries } = useIoEvents(
+  const { indicators: ioIndicators } = useIoEvents(
     (event) => {
       if (event.direction === "write") {
         void queryClient.invalidateQueries({ queryKey: ["attachments", "entry", event.entry_id] });
@@ -774,17 +774,6 @@ export function WorkspacePage() {
                             {entry.title}
                           </button>
                         )}
-
-                        {/* I/O activity indicators */}
-                        {ioIndicators[entry.id] ? (
-                          <img
-                            src={ioIndicators[entry.id].direction === "write" ? "/downloading.svg" : "/uploading.svg"}
-                            alt={ioIndicators[entry.id].direction === "write" ? "Writing" : "Reading"}
-                            className="ml-auto shrink-0 h-4 w-4"
-                          />
-                        ) : ioActiveEntries.has(entry.id) ? (
-                          <span className="ml-auto shrink-0 text-[10px] text-amber-500" title="API-connected">⇄</span>
-                        ) : null}
                       </div>
 
                       {/* Attachments nested under entry */}
@@ -825,7 +814,15 @@ export function WorkspacePage() {
                                 setAttDropEntryId(null);
                               }}
                             >
-                              <Paperclip size={12} className="shrink-0" />
+                              {ioIndicators[ioKey(entry.id, att.filename)] ? (
+                                <img
+                                  src={ioIndicators[ioKey(entry.id, att.filename)].direction === "write" ? "/downloading.svg" : "/uploading.svg"}
+                                  alt={ioIndicators[ioKey(entry.id, att.filename)].direction === "write" ? "Writing" : "Reading"}
+                                  className="shrink-0 h-3 w-3"
+                                />
+                              ) : (
+                                <Paperclip size={12} className="shrink-0" />
+                              )}
                               {renameState?.kind === "attachment" && renameState.id === att.id ? (
                                 <input
                                   autoFocus
