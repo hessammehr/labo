@@ -1,5 +1,3 @@
-import uuid
-
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -43,11 +41,10 @@ def upload_attachment(
     else:
         att_type = "file"
 
-    # Store file on disk
+    # Store file on disk using bare filename under entry directory
     entry_dir = settings.storage_dir / entry_id
     entry_dir.mkdir(parents=True, exist_ok=True)
-    prefix = uuid.uuid4().hex[:12]
-    storage_path = entry_dir / f"{prefix}_{filename}"
+    storage_path = entry_dir / filename
     storage_path.write_bytes(content)
 
     attachment = Attachment(
@@ -158,11 +155,7 @@ def update_attachment(
 
         old_path = Path(attachment.storage_uri)
         if old_path.exists():
-            # Preserve the uuid prefix from the storage name
-            old_name = old_path.name
-            sep_idx = old_name.find("_")
-            prefix = old_name[: sep_idx + 1] if sep_idx != -1 else ""
-            new_path = old_path.parent / f"{prefix}{new_filename}"
+            new_path = old_path.parent / new_filename
             old_path.rename(new_path)
             attachment.storage_uri = str(new_path)
 
