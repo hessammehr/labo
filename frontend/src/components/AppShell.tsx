@@ -2,6 +2,7 @@ import { Link, Outlet } from "react-router-dom";
 
 import { useAuth } from "../lib/auth";
 
+
 export function AppShell() {
   const { user, logout } = useAuth();
 
@@ -9,8 +10,8 @@ export function AppShell() {
     <div className="h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="shrink-0 border-b bg-white dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center justify-between px-4 py-3">
-          <Link to="/" className="text-lg font-semibold">
-            Labo
+          <Link to="/">
+            <img src="/logo.svg" alt="Labo" className="h-8" />
           </Link>
           <div className="flex items-center gap-4 text-sm">
             <span className="text-slate-600 dark:text-slate-300">{user?.email}</span>
