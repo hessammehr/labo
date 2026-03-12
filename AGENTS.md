@@ -9,5 +9,5 @@
 
 ## Python
 
-- Always use `uv` for Python tasks: `uv run`, `uvx`, `uv add`, `uv pip`, etc.
-- Do not use bare `python`, `pip`, or `pytest` — use `uv run python`, `uv run pytest`, etc.
+- Always use `uv` for Python tasks: `uv run`, `uvx`, `uv add` (but avoid manual package management, i.e. `uv pip`)
+- Do not use bare `python`, `pip`, or `pytest` — use `uv run python`, `uv run pytest`, `uvx ...`, etc.
