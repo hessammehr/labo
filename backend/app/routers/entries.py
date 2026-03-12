@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import Attachment, Entry, EntryRevision, Notebook, User
 from app.schemas import EntryCreate, EntryImport, EntryOut, EntryRevisionOut, EntryUpdate
-from app.services.export import EXPORT_FORMATS, AttachmentInfo, entry_to_markdown, export_document
+from app.services.export import EXPORT_FORMATS, AttachmentInfo, collect_attachment_ids, entry_to_markdown, export_document
 from app.services.markdown import blocks_to_markdown, markdown_to_blocks
 
 router = APIRouter(prefix="/entries", tags=["entries"])
@@ -145,10 +145,36 @@ def export_entry(
 
     md = entry_to_markdown(entry.content_blocks or [], entry.title)
 
-    # Collect attachments for URL resolution
-    db_attachments = db.query(Attachment).filter(Attachment.entry_id == entry_id).all()
+    # Collect all attachments referenced in the markdown, which may include
+    # attachments belonging to other entries.
+    referenced_ids = collect_attachment_ids(md)
+    db_attachments = (
+        db.query(Attachment).filter(Attachment.id.in_(referenced_ids)).all()
+        if referenced_ids
+        else []
+    )
+
+    # Attachments from this entry stay flat; those from other entries are
+    # namespaced by their owning entry's title to prevent clashes.
+    external_entry_ids = {
+        a.entry_id for a in db_attachments if a.entry_id != entry_id
+    }
+    entry_title_by_id: dict[str, str] = {}
+    if external_entry_ids:
+        external_entries = (
+            db.query(Entry.id, Entry.title)
+            .filter(Entry.id.in_(external_entry_ids))
+            .all()
+        )
+        entry_title_by_id.update({e.id: e.title for e in external_entries})
+
     att_infos = [
-        AttachmentInfo(id=a.id, filename=a.filename, storage_path=Path(a.storage_uri))
+        AttachmentInfo(
+            id=a.id,
+            filename=a.filename,
+            storage_path=Path(a.storage_uri),
+            entry_title=entry_title_by_id.get(a.entry_id),
+        )
         for a in db_attachments
     ]
 

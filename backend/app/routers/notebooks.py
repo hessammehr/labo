@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import Attachment, Entry, Notebook, Permission, User
 from app.schemas import NotebookCreate, NotebookOut, NotebookUpdate
-from app.services.export import EXPORT_FORMATS, AttachmentInfo, export_document, notebook_to_markdown
+from app.services.export import EXPORT_FORMATS, AttachmentInfo, collect_attachment_ids, export_document, notebook_to_markdown
 
 router = APIRouter(prefix="/notebooks", tags=["notebooks"])
 
@@ -155,15 +155,37 @@ def export_notebook(
 
     md = notebook_to_markdown(entry_dicts)
 
-    # Collect attachments across all entries in this notebook
-    entry_ids = [e.id for e in entries]
+    # Collect all attachments referenced in the markdown, which may include
+    # attachments from entries outside this notebook.  Namespace by the
+    # owning entry's title to avoid filename clashes in the export.
+    entry_title_by_id = {e.id: e.title for e in entries}
+    referenced_ids = collect_attachment_ids(md)
     db_attachments = (
-        db.query(Attachment)
-        .filter(Attachment.entry_id.in_(entry_ids))
-        .all()
-    ) if entry_ids else []
+        db.query(Attachment).filter(Attachment.id.in_(referenced_ids)).all()
+        if referenced_ids
+        else []
+    )
+
+    # For attachments belonging to entries outside this notebook, look up
+    # their entry titles so they can be namespaced properly.
+    missing_entry_ids = {
+        a.entry_id for a in db_attachments if a.entry_id not in entry_title_by_id
+    }
+    if missing_entry_ids:
+        external_entries = (
+            db.query(Entry.id, Entry.title)
+            .filter(Entry.id.in_(missing_entry_ids))
+            .all()
+        )
+        entry_title_by_id.update({e.id: e.title for e in external_entries})
+
     att_infos = [
-        AttachmentInfo(id=a.id, filename=a.filename, storage_path=Path(a.storage_uri))
+        AttachmentInfo(
+            id=a.id,
+            filename=a.filename,
+            storage_path=Path(a.storage_uri),
+            entry_title=entry_title_by_id.get(a.entry_id),
+        )
         for a in db_attachments
     ]
 

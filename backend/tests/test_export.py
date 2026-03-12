@@ -1,4 +1,4 @@
-"""Tests for the export service, focusing on SVG → PDF conversion and EXIF handling."""
+"""Tests for the export service."""
 
 import base64
 from pathlib import Path
@@ -9,7 +9,12 @@ import tempfile
 import pytest
 from PIL import Image
 
-from app.services.export import AttachmentInfo, _stage_attachments, convert_with_pandoc
+from app.services.export import (
+    AttachmentInfo,
+    _stage_attachments,
+    convert_with_pandoc,
+    export_attachments_zip,
+)
 
 
 SIMPLE_SVG = (
@@ -189,3 +194,84 @@ class TestHtmlEmbedResources:
         # SVG should be inlined as a data URI
         assert "data:image/svg+xml" in html
         assert "attachments/circle.svg" not in html
+
+
+class TestEntryTitleNamespacing:
+    """Notebook exports namespace attachments by entry title to avoid clashes."""
+
+    def test_same_filename_different_entries(self, tmp_path: Path):
+        """Two entries with identically-named attachments get separate dirs."""
+        img1 = tmp_path / "img1.png"
+        img2 = tmp_path / "img2.png"
+        img1.write_bytes(b"\x89PNG entry1")
+        img2.write_bytes(b"\x89PNG entry2")
+
+        att1 = AttachmentInfo(
+            id="aa0001", filename="figure.png", storage_path=img1,
+            entry_title="Synthesis",
+        )
+        att2 = AttachmentInfo(
+            id="aa0002", filename="figure.png", storage_path=img2,
+            entry_title="Analysis",
+        )
+
+        md = (
+            "![fig1](/api/attachments/aa0001)\n"
+            "![fig2](/api/attachments/aa0002)"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest = Path(tmpdir)
+            result = _stage_attachments(md, [att1, att2], dest)
+
+            assert (dest / "attachments" / "Synthesis" / "figure.png").exists()
+            assert (dest / "attachments" / "Analysis" / "figure.png").exists()
+            assert "attachments/Synthesis/figure.png" in result
+            assert "attachments/Analysis/figure.png" in result
+
+            # Files have distinct content
+            content1 = (dest / "attachments" / "Synthesis" / "figure.png").read_bytes()
+            content2 = (dest / "attachments" / "Analysis" / "figure.png").read_bytes()
+            assert content1 != content2
+
+    def test_no_entry_title_stays_flat(self, tmp_path: Path):
+        """Single-entry exports (no entry_title) use a flat attachments dir."""
+        img = tmp_path / "photo.png"
+        img.write_bytes(b"\x89PNG data")
+
+        att = AttachmentInfo(id="bb0001", filename="photo.png", storage_path=img)
+        md = "![photo](/api/attachments/bb0001)"
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            dest = Path(tmpdir)
+            result = _stage_attachments(md, [att], dest)
+
+            assert (dest / "attachments" / "photo.png").exists()
+            assert "attachments/photo.png" in result
+
+    def test_attachments_zip_namespaced(self, tmp_path: Path):
+        """export_attachments_zip namespaces by entry title."""
+        f1 = tmp_path / "data1.csv"
+        f2 = tmp_path / "data2.csv"
+        f1.write_text("a,b\n1,2")
+        f2.write_text("x,y\n3,4")
+
+        atts = [
+            AttachmentInfo(
+                id="cc0001", filename="data.csv", storage_path=f1,
+                entry_title="Experiment 1",
+            ),
+            AttachmentInfo(
+                id="cc0002", filename="data.csv", storage_path=f2,
+                entry_title="Experiment 2",
+            ),
+        ]
+
+        import io
+        import zipfile
+
+        data = export_attachments_zip(atts, "notebook")
+        with zipfile.ZipFile(io.BytesIO(data)) as zf:
+            names = set(zf.namelist())
+            assert "notebook/attachments/Experiment 1/data.csv" in names
+            assert "notebook/attachments/Experiment 2/data.csv" in names
