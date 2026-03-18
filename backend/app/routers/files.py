@@ -62,8 +62,8 @@ def _resolve_path(
             raise HTTPException(status_code=404, detail="Notebook not found")
 
         if len(parts) == 0:
-            # Listing notebook — handled by list endpoint
-            raise HTTPException(status_code=400, detail="Path must include at least an entry title")
+            # Listing notebook entries — return (None, None) to signal directory listing
+            return None, None
 
         entry_title = parts[0]
         entry = (
@@ -117,8 +117,8 @@ def read_file(
 
     # Directory listing
     if attachment is None:
-        if token.resource_type == "notebook" and not path.strip("/"):
-            # List entries in notebook
+        if entry is None:
+            # Notebook root — list entries
             notebook = db.query(Notebook).filter(Notebook.id == token.resource_id).first()
             entries = db.query(Entry).filter(Entry.notebook_id == notebook.id).all()
             return [{"name": e.title, "type": "entry"} for e in entries]
