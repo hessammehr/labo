@@ -11,12 +11,15 @@
     }
     .chevron {
       fill: none;
-      stroke: currentColor;
+      stroke: #000;
       stroke-width: 3;
       stroke-linecap: round;
       stroke-linejoin: round;
       transform-origin: 20px 20px;
       animation: flow 1.8s ease-in-out infinite;
+    }
+    @media (prefers-color-scheme: dark) {
+      .chevron { stroke: #fff; }
     }
   </style>
 
