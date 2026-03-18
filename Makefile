@@ -21,13 +21,13 @@ dev-backend: ## Run backend dev server with reload
 	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --reload --host 127.0.0.1 --port 8000
 
 dev-frontend: ## Run frontend dev server
-	cd $(FRONTEND_DIR) && bun dev --host 127.0.0.1 --port 5173
+	cd $(FRONTEND_DIR) && bun run --bun dev -- --host 127.0.0.1 --port 5173
 
 run: ## Run backend server (production)
 	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --host 127.0.0.1 --port 8000
 
 build-frontend: ## Build frontend static bundle
-	cd $(FRONTEND_DIR) && bun run build
+	cd $(FRONTEND_DIR) && bun run --bun build
 
 serve: ## Run server and expose over HTTPS via Tailscale
 	@tailscale serve --bg --https=443 http://127.0.0.1:8000
