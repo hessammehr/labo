@@ -69,6 +69,24 @@ type RenameState =
   | { kind: "attachment"; id: string; value: string }
   | null;
 
+const TEXT_MIME_TYPES = new Set([
+  "application/json",
+  "application/xml",
+  "application/xhtml+xml",
+  "application/javascript",
+  "application/x-sh",
+  "application/x-yaml",
+  "application/yaml",
+  "application/toml",
+  "application/x-toml",
+  "application/sql",
+  "application/graphql",
+]);
+
+function isTextMime(mimeType: string): boolean {
+  return mimeType.startsWith("text/") || TEXT_MIME_TYPES.has(mimeType);
+}
+
 export function WorkspacePage() {
   const queryClient = useQueryClient();
   const { indicators: ioIndicators } = useIoEvents(
@@ -148,6 +166,13 @@ export function WorkspacePage() {
     };
   }, []);
 
+  // Helper: switch entry and clear dependent state.
+  const selectEntry = (entryId: string | null) => {
+    setSelectedEntryId(entryId);
+    setSelectedAttachmentId(null);
+    setPreviewRevision(null);
+  };
+
   const notebooksQuery = useQuery({
     queryKey: ["notebooks"],
     queryFn: async () => {
@@ -208,14 +233,24 @@ export function WorkspacePage() {
     return null;
   }, [selectedAttachmentId, attachmentsByEntry]);
 
-  // Clear revision preview when switching entries.
-  const prevEntryIdRef = useRef(selectedEntryId);
-  useEffect(() => {
-    if (prevEntryIdRef.current !== selectedEntryId) {
-      setPreviewRevision(null);
-      prevEntryIdRef.current = selectedEntryId;
-    }
-  }, [selectedEntryId]);
+  const isText = selectedAttachment
+    ? isTextMime(selectedAttachment.mime_type)
+    : false;
+
+  // Fetch text content for text-ish attachments.
+  const textAttachmentId = isText ? selectedAttachment?.id ?? null : null;
+  const textPreview = useQuery({
+    queryKey: ["attachment-text", textAttachmentId],
+    queryFn: async () => {
+      const res = await fetch(`/api/attachments/${textAttachmentId}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.text();
+    },
+    enabled: textAttachmentId !== null,
+    staleTime: 30_000,
+  });
+
+
 
   const refreshTree = async () => {
     await queryClient.invalidateQueries({ queryKey: ["notebooks"] });
@@ -259,7 +294,7 @@ export function WorkspacePage() {
     },
     onSuccess: async (entry) => {
       await refreshTree();
-      setSelectedEntryId(entry.id); setSelectedAttachmentId(null);
+      selectEntry(entry.id);
       setExpandedNotebookIds((prev) => ({ ...prev, [entry.notebook_id]: true }));
     },
   });
@@ -296,7 +331,7 @@ export function WorkspacePage() {
     },
     onSuccess: async (entry) => {
       await refreshTree();
-      setSelectedEntryId(entry.id); setSelectedAttachmentId(null);
+      selectEntry(entry.id);
       setExpandedNotebookIds((prev) => ({ ...prev, [entry.notebook_id]: true }));
     },
   });
@@ -659,7 +694,7 @@ export function WorkspacePage() {
                       className="truncate text-left"
                       onClick={() => {
                         setExpandedNotebookIds((prev) => ({ ...prev, [notebook.id]: true }));
-                        if (entries[0]) { setSelectedEntryId(entries[0].id); setSelectedAttachmentId(null); }
+                        if (entries[0]) { selectEntry(entries[0].id); }
                       }}
                     >
                       {notebook.title}
@@ -770,7 +805,7 @@ export function WorkspacePage() {
                             className="w-full border border-slate-300 dark:border-slate-700 px-1 py-0.5 text-sm outline-none dark:bg-slate-950 dark:text-slate-100"
                           />
                         ) : (
-                          <button className="truncate text-left" onClick={() => { setSelectedEntryId(entry.id); setSelectedAttachmentId(null); }}>
+                          <button className="truncate text-left" onClick={() => { selectEntry(entry.id); }}>
                             {entry.title}
                           </button>
                         )}
@@ -861,7 +896,7 @@ export function WorkspacePage() {
           onClick={() => setPreviewCollapsed((c) => !c)}
         >
           {previewCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-          <Image size={12} />
+          {selectedAttachment && isText ? <FileText size={12} /> : <Image size={12} />}
           <span>Preview</span>
           {selectedAttachment && (
             <span className="ml-auto font-normal normal-case tracking-normal text-[10px] text-slate-400 dark:text-slate-500 truncate max-w-[50%]">
@@ -875,18 +910,26 @@ export function WorkspacePage() {
             {/* Preview pane body */}
             <div className="shrink-0 overflow-hidden flex flex-col" style={{ height: previewPaneHeight }}>
               {selectedAttachment && selectedAttachment.mime_type.startsWith("image/") ? (
-                <>
-                  <div className="flex-1 min-h-0 flex items-center justify-center p-2 bg-slate-50 dark:bg-slate-950/50">
-                    <img
-                      src={`/api/attachments/${selectedAttachment.id}`}
-                      alt={selectedAttachment.filename}
-                      className="max-w-full max-h-full object-contain rounded"
-                    />
-                  </div>
-                </>
+                <div className="flex-1 min-h-0 flex items-center justify-center p-2 bg-slate-50 dark:bg-slate-950/50">
+                  <img
+                    src={`/api/attachments/${selectedAttachment.id}`}
+                    alt={selectedAttachment.filename}
+                    className="max-w-full max-h-full object-contain rounded"
+                  />
+                </div>
+              ) : selectedAttachment && isText ? (
+                <div className="flex-1 min-h-0 overflow-auto p-2 bg-slate-50 dark:bg-slate-950/50">
+                  {textPreview.isLoading ? (
+                    <div className="flex items-center justify-center h-full text-xs text-slate-400 dark:text-slate-500">Loading…</div>
+                  ) : textPreview.isError ? (
+                    <div className="flex items-center justify-center h-full text-xs text-red-400 dark:text-red-500">{String(textPreview.error)}</div>
+                  ) : (
+                    <pre className="text-xs font-mono text-slate-700 dark:text-slate-300 whitespace-pre overflow-x-auto m-0">{textPreview.data}</pre>
+                  )}
+                </div>
               ) : (
                 <div className="flex-1 min-h-0 flex items-center justify-center p-2 text-xs text-slate-400 dark:text-slate-500">
-                  {selectedAttachment ? "No preview available" : "Select an image attachment to preview"}
+                  {selectedAttachment ? "No preview available" : "Select an attachment to preview"}
                 </div>
               )}
             </div>

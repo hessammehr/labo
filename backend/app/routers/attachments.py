@@ -1,3 +1,5 @@
+import mimetypes
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -30,8 +32,12 @@ def upload_attachment(
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File too large (max 50 MB)")
 
-    mime = file.content_type or "application/octet-stream"
     filename = file.filename or "unnamed"
+    mime = file.content_type or "application/octet-stream"
+    if mime == "application/octet-stream":
+        guessed, _ = mimetypes.guess_type(filename)
+        if guessed:
+            mime = guessed
 
     # Classify type
     if mime.startswith("image/"):
