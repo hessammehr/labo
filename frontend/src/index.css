@@ -1,8 +1,14 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  color-scheme: light dark;
+  color-scheme: light;
+}
+
+.dark {
+  color-scheme: dark;
 }
 
 body {
@@ -11,11 +17,9 @@ body {
   color: #0f172a;
 }
 
-@media (prefers-color-scheme: dark) {
-  body {
-    background: #020617;
-    color: #e2e8f0;
-  }
+.dark body {
+  background: #020617;
+  color: #e2e8f0;
 }
 
 /* Keep BlockNote surface visually merged with the editor pane */
