@@ -18,7 +18,7 @@ dev: ## Run backend + frontend dev servers
 	wait
 
 dev-backend: ## Run backend dev server with reload
-	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --reload --host 127.0.0.1 --port 8000
+	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --reload --timeout-graceful-shutdown 1 --host 127.0.0.1 --port 8000
 
 dev-frontend: ## Run frontend dev server
 	cd $(FRONTEND_DIR) && bun run --bun dev -- --host 127.0.0.1 --port 5173
