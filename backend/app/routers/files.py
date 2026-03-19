@@ -135,21 +135,24 @@ def read_file(
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
 
-    # Emit read event
-    event_hub.publish(
-        token.created_by,
-        IoEvent(
-            resource_type=token.resource_type,
-            resource_id=token.resource_id,
-            entry_id=entry.id,
-            filename=attachment.filename,
-            direction="read",
-        ),
-    )
-
     def iterfile():
+        last_event_at = 0.0
+        event_interval = 0.5  # seconds — throttle to avoid flooding SSE
         with open(file_path, "rb") as f:
             while chunk := f.read(STREAM_CHUNK_SIZE):
+                now = time.monotonic()
+                if now - last_event_at >= event_interval:
+                    last_event_at = now
+                    event_hub.publish(
+                        token.created_by,
+                        IoEvent(
+                            resource_type=token.resource_type,
+                            resource_id=token.resource_id,
+                            entry_id=entry.id,
+                            filename=attachment.filename,
+                            direction="read",
+                        ),
+                    )
                 yield chunk
 
     return StreamingResponse(
