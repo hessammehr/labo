@@ -7,6 +7,10 @@
   - Example: `find . -not -path '*/node_modules/*' -not -path '*/.venv/*' -not -path '*/__pycache__/*'`
   - Or use `fd` if available (respects `.gitignore` by default).
 
+## Git
+
+- Never use `git add -A` or `git commit -a`. Always stage specific files/paths.
+
 ## Python
 
 - Always use `uv` for Python tasks: `uv run`, `uvx`, `uv add` (but avoid manual package management, i.e. `uv pip`)

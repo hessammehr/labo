@@ -76,6 +76,7 @@ Block-based structure for rich text (JSON):
 - File/Attachment block
 - Code block
 - Equation block
+- Chemical structure block (KET JSON via Ketcher)
 
 ## 8. Permissions & Sharing
 - **Notebook-level**: default permissions applied to entries.
