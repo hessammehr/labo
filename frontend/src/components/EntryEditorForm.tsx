@@ -1,8 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { PartialBlock } from "@blocknote/core";
-import { useCreateBlockNote, SuggestionMenuController } from "@blocknote/react";
+import {
+  BlockNoteSchema,
+  defaultBlockSpecs,
+  type PartialBlock,
+} from "@blocknote/core";
+import {
+  useCreateBlockNote,
+  SuggestionMenuController,
+  getDefaultReactSlashMenuItems,
+} from "@blocknote/react";
 import { BlockNoteView } from "@blocknote/mantine";
 import { flip, offset, shift, size } from "@floating-ui/react";
+import { FlaskConical } from "lucide-react";
+import { ChemStructureBlock } from "../lib/chemBlock";
+import { KetcherModal } from "./KetcherModal";
+
+// ── Custom schema with chem block ─────────────────────────────────────
+const schema = BlockNoteSchema.create({
+  blockSpecs: {
+    ...defaultBlockSpecs,
+    chemStructure: ChemStructureBlock(),
+  },
+});
 
 type SavePayload = {
   title: string;
@@ -29,6 +48,15 @@ type EntryEditorFormProps = {
 };
 
 const AUTO_SAVE_DELAY = 2000; // ms
+
+// ── Ketcher modal state ───────────────────────────────────────────────
+type KetcherState = {
+  open: boolean;
+  blockId: string;
+  ket: string;
+};
+
+const KETCHER_CLOSED: KetcherState = { open: false, blockId: "", ket: "" };
 
 export function EntryEditorForm({
   initialTitle = "",
@@ -66,7 +94,8 @@ export function EntryEditorForm({
 
   const editor = useCreateBlockNote(
     {
-      ...(initialContentRef.current ? { initialContent: initialContentRef.current } : {}),
+      schema,
+      ...(initialContentRef.current ? { initialContent: initialContentRef.current as any } : {}),
       uploadFile: uploadFileRef.current
         ? async (file: File) => {
             return uploadFileRef.current!(file);
@@ -76,6 +105,34 @@ export function EntryEditorForm({
     // Empty dep array: editor is created once; entry switches remount via key.
     [],
   );
+
+  // --- Ketcher modal state -------------------------------------------
+
+  const [ketcher, setKetcher] = useState<KetcherState>(KETCHER_CLOSED);
+
+  // Listen for "open-ketcher" custom events dispatched by the chem block
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { blockId, ket } = (e as CustomEvent).detail;
+      setKetcher({ open: true, blockId, ket });
+    };
+    window.addEventListener("open-ketcher", handler);
+    return () => window.removeEventListener("open-ketcher", handler);
+  }, []);
+
+  const handleKetcherSave = useCallback(
+    (ket: string, smiles: string, svg: string) => {
+      editor.updateBlock(ketcher.blockId, {
+        props: { ket, smiles, svgPreview: svg },
+      });
+      setKetcher(KETCHER_CLOSED);
+    },
+    [editor, ketcher.blockId],
+  );
+
+  const handleKetcherClose = useCallback(() => {
+    setKetcher(KETCHER_CLOSED);
+  }, []);
 
   // --- save helpers (disabled in readOnly mode) -----------------------
 
@@ -241,6 +298,32 @@ export function EntryEditorForm({
           {!readOnly && (
             <SuggestionMenuController
               triggerCharacter="/"
+              getItems={async (query) => {
+                const defaults = getDefaultReactSlashMenuItems(editor);
+                const chemItem = {
+                  title: "Chemical Structure",
+                  subtext: "Draw a molecule or reaction",
+                  aliases: ["molecule", "structure", "chem", "mol", "ketcher"],
+                  group: "Chemistry",
+                  icon: <FlaskConical size={18} />,
+                  onItemClick: () => {
+                    const current = editor.getTextCursorPosition().block;
+                    editor.insertBlocks(
+                      [{ type: "chemStructure" as any }],
+                      current,
+                      "after",
+                    );
+                  },
+                };
+                const all = [...defaults, chemItem];
+                if (!query) return all;
+                const q = query.toLowerCase();
+                return all.filter(
+                  (item) =>
+                    item.title.toLowerCase().includes(q) ||
+                    item.aliases?.some((a) => a.toLowerCase().includes(q)),
+                );
+              }}
               floatingUIOptions={{
                 useFloatingOptions: {
                   placement: "bottom-start",
@@ -261,6 +344,14 @@ export function EntryEditorForm({
           )}
         </BlockNoteView>
       </div>
+
+      {/* Ketcher modal — lazy-loaded on first open */}
+      <KetcherModal
+        open={ketcher.open}
+        initialKet={ketcher.ket}
+        onSave={handleKetcherSave}
+        onClose={handleKetcherClose}
+      />
     </div>
   );
 }
