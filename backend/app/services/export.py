@@ -13,7 +13,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-import cairosvg
+from svglib.svglib import svg2rlg
+from reportlab.graphics import renderPDF
 from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
@@ -105,8 +106,11 @@ def _apply_exif_transpose(path: Path) -> None:
 
 
 def _convert_svg_to_pdf(src: Path, dest: Path) -> None:
-    """Convert an SVG file to PDF using cairosvg."""
-    cairosvg.svg2pdf(url=str(src), write_to=str(dest))
+    """Convert an SVG file to PDF using svglib + reportlab."""
+    drawing = svg2rlg(str(src))
+    if drawing is None:
+        raise RuntimeError(f"svglib failed to parse {src}")
+    renderPDF.drawToFile(drawing, str(dest))
 
 
 def _stage_attachments(
@@ -132,7 +136,7 @@ def _stage_attachments(
     another format but still contains the same URL patterns).
 
     When *convert_svg* is ``True``, any ``.svg`` attachments are converted to
-    PDF via cairosvg so that pdflatex can embed them.
+    PDF via svglib/reportlab so that pdflatex can embed them.
     """
     referenced_ids = _referenced_ids if _referenced_ids is not None else collect_attachment_ids(markdown)
     if not referenced_ids:
@@ -162,19 +166,7 @@ def _stage_attachments(
         if convert_svg and Path(target_name).suffix.lower() == ".svg":
             pdf_name = Path(target_name).with_suffix(".pdf").name
             target_path = att_dir / pdf_name
-            try:
-                _convert_svg_to_pdf(info.storage_path, target_path)
-            except Exception:
-                logger.warning(
-                    "Failed to convert SVG attachment %s to PDF; "
-                    "falling back to original file",
-                    att_id,
-                    exc_info=True,
-                )
-                target_path = att_dir / target_name
-                shutil.copy2(info.storage_path, target_path)
-                id_to_relpath[att_id] = str(target_path.relative_to(dest_dir))
-                continue
+            _convert_svg_to_pdf(info.storage_path, target_path)
             id_to_relpath[att_id] = str(target_path.relative_to(dest_dir))
         else:
             target_path = att_dir / target_name
@@ -254,15 +246,11 @@ def _materialise_data_uris(
 
         if convert_svg:
             pdf_path = img_dir / f"{digest}.pdf"
+            svg_path = img_dir / f"{digest}.svg"
             if not pdf_path.exists():
-                try:
-                    cairosvg.svg2pdf(bytestring=svg_bytes, write_to=str(pdf_path))
-                except Exception:
-                    # Fall back to SVG if conversion fails
-                    logger.warning("Failed to convert inline SVG to PDF", exc_info=True)
-                    svg_path = img_dir / f"{digest}.svg"
-                    svg_path.write_bytes(svg_bytes)
-                    return f"![{alt}]({svg_path})"
+                svg_path.write_bytes(svg_bytes)
+                _convert_svg_to_pdf(svg_path, pdf_path)
+                svg_path.unlink(missing_ok=True)
             return f"![{alt}]({pdf_path})"
         else:
             svg_path = img_dir / f"{digest}.svg"
@@ -299,7 +287,7 @@ def convert_with_pandoc(
             convert_svg=(fmt == "pdf"),
         )
         # Extract inline SVG data URIs to real files so pandoc can process them.
-        # For PDF we convert to PDF via cairosvg (pdflatex can't handle SVG);
+        # For PDF we convert to PDF via svglib/reportlab (pdflatex can't handle SVG);
         # for all other formats we keep SVG files (pandoc handles them fine).
         resolved_md = _materialise_data_uris(
             resolved_md, work, convert_svg=(fmt == "pdf"),
