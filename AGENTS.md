@@ -10,6 +10,7 @@
 ## Git
 
 - Never use `git add -A` or `git commit -a`. Always stage specific files/paths.
+- Do not commit until asked by the user.
 
 ## Python
 
