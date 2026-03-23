@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import io
 import logging
 import re
@@ -218,6 +220,59 @@ def notebook_to_markdown(
 # Export helpers
 # ------------------------------------------------------------------
 
+_DATA_URI_RE = re.compile(
+    r"!\[([^\]]*)\]\(data:image/svg\+xml;base64,([A-Za-z0-9+/=\s]+)\)"
+)
+
+
+def _materialise_data_uris(
+    markdown: str,
+    dest_dir: Path,
+    *,
+    convert_svg: bool = False,
+) -> str:
+    """Extract inline ``data:image/svg+xml;base64,…`` images to files.
+
+    Each unique data URI is written to *dest_dir* as either an ``.svg`` or
+    (when *convert_svg* is ``True``) a ``.pdf`` file.  The markdown is
+    rewritten to reference the local file path.
+
+    This is necessary because pandoc/pdflatex cannot consume data-URI SVGs
+    directly — pdflatex shells out to ``rsvg-convert`` which expects real
+    files.
+    """
+    img_dir = dest_dir / "chem_images"
+
+    def _replace(m: re.Match[str]) -> str:
+        alt = m.group(1)
+        b64 = m.group(2).strip()
+        # Deterministic filename from content hash
+        digest = hashlib.sha256(b64.encode("ascii")).hexdigest()[:16]
+        svg_bytes = base64.b64decode(b64)
+
+        img_dir.mkdir(parents=True, exist_ok=True)
+
+        if convert_svg:
+            pdf_path = img_dir / f"{digest}.pdf"
+            if not pdf_path.exists():
+                try:
+                    cairosvg.svg2pdf(bytestring=svg_bytes, write_to=str(pdf_path))
+                except Exception:
+                    # Fall back to SVG if conversion fails
+                    logger.warning("Failed to convert inline SVG to PDF", exc_info=True)
+                    svg_path = img_dir / f"{digest}.svg"
+                    svg_path.write_bytes(svg_bytes)
+                    return f"![{alt}]({svg_path})"
+            return f"![{alt}]({pdf_path})"
+        else:
+            svg_path = img_dir / f"{digest}.svg"
+            if not svg_path.exists():
+                svg_path.write_bytes(svg_bytes)
+            return f"![{alt}]({svg_path})"
+
+    return _DATA_URI_RE.sub(_replace, markdown)
+
+
 def convert_with_pandoc(
     markdown: str,
     fmt: str,
@@ -242,6 +297,12 @@ def convert_with_pandoc(
         resolved_md = _stage_attachments(
             markdown, attachments, work,
             convert_svg=(fmt == "pdf"),
+        )
+        # Extract inline SVG data URIs to real files so pandoc can process them.
+        # For PDF we convert to PDF via cairosvg (pdflatex can't handle SVG);
+        # for all other formats we keep SVG files (pandoc handles them fine).
+        resolved_md = _materialise_data_uris(
+            resolved_md, work, convert_svg=(fmt == "pdf"),
         )
 
         cmd = ["pandoc", "-f", "markdown", "-t", pandoc_to]
