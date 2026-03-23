@@ -190,7 +190,7 @@ class TestChemStructure:
             )
         ]
         md = blocks_to_markdown(blocks)
-        assert "![CCO](data:image/svg+xml;base64," in md
+        assert "![chemical structure](data:image/svg+xml;base64," in md
 
     def test_empty_structure_skipped(self):
         """A block inserted but never drawn has no SVG and is skipped."""
@@ -198,22 +198,23 @@ class TestChemStructure:
         md = blocks_to_markdown(blocks)
         assert md.strip() == ""
 
-    def test_alt_text_is_smiles(self):
+    def test_alt_text_uses_caption(self):
         blocks = [
             _block(
                 "chemStructure",
                 props={
                     "ket": '{"root":{}}',
                     "smiles": "O=C=O",
+                    "caption": "Carbon dioxide",
                     "svgPreview": "<svg/>",
                 },
             )
         ]
         md = blocks_to_markdown(blocks)
-        assert md.startswith("![O=C=O]")
+        assert md.startswith("![Carbon dioxide]")
 
-    def test_alt_text_fallback_when_no_smiles(self):
-        """Reactions can't produce SMILES; alt text falls back to generic label."""
+    def test_alt_text_fallback_when_no_caption(self):
+        """Without a caption the alt text falls back to a generic label."""
         blocks = [
             _block(
                 "chemStructure",

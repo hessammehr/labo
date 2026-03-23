@@ -8,12 +8,65 @@ import {
   useCreateBlockNote,
   SuggestionMenuController,
   getDefaultReactSlashMenuItems,
+  FormattingToolbarController,
+  FormattingToolbar,
+  getFormattingToolbarItems,
+  FileCaptionButton,
+  FileDeleteButton,
+  FileRenameButton,
+  FilePreviewButton,
+  TextAlignButton,
+  useBlockNoteEditor,
+  useEditorState,
 } from "@blocknote/react";
+import type { BlockSchema, InlineContentSchema, StyleSchema } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import { flip, offset, shift, size } from "@floating-ui/react";
 import { FlaskConical } from "lucide-react";
 import { ChemStructureBlock } from "../lib/chemBlock";
+import {
+  ChemReplaceButton,
+  ChemDownloadButton,
+  ChemAttachmentButton,
+} from "../lib/chemToolbar";
 import { KetcherModal } from "./KetcherModal";
+
+// ── Custom formatting toolbar ─────────────────────────────────────────
+// Shows chem-specific buttons when a chemStructure block is selected,
+// otherwise falls back to the default button set.
+
+const CustomFormattingToolbar = () => {
+  const editor = useBlockNoteEditor<BlockSchema, InlineContentSchema, StyleSchema>();
+  const isChemSelected = useEditorState({
+    editor,
+    selector: ({ editor }) => {
+      const blocks = editor.getSelection()?.blocks || [
+        editor.getTextCursorPosition().block,
+      ];
+      return blocks.length === 1 && blocks[0].type === "chemStructure";
+    },
+  });
+
+  if (isChemSelected) {
+    return (
+      <FormattingToolbar>
+        <FileCaptionButton key="caption" />
+        <ChemReplaceButton key="replace" />
+        <FileRenameButton key="rename" />
+        <FileDeleteButton key="delete" />
+        <ChemDownloadButton key="download" />
+        <ChemAttachmentButton key="attachment" />
+        <FilePreviewButton key="preview" />
+        <TextAlignButton textAlignment="left" key="alignLeft" />
+        <TextAlignButton textAlignment="center" key="alignCenter" />
+        <TextAlignButton textAlignment="right" key="alignRight" />
+      </FormattingToolbar>
+    );
+  }
+
+  // Default toolbar for text / image / file blocks — use the full built-in set
+  return <FormattingToolbar>{getFormattingToolbarItems()}</FormattingToolbar>;
+};
 
 // ── Custom schema with chem block ─────────────────────────────────────
 const schema = BlockNoteSchema.create({
@@ -144,8 +197,12 @@ export function EntryEditorForm({
 
   const handleKetcherSave = useCallback(
     (ket: string, smiles: string, svg: string) => {
+      // Set url to a data-URI so built-in File* toolbar buttons activate.
+      const url = svg
+        ? `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(svg)))}`
+        : "";
       editor.updateBlock(ketcher.blockId, {
-        props: { ket, smiles, svgPreview: svg },
+        props: { ket, smiles, svgPreview: svg, url },
       });
       setKetcher(KETCHER_CLOSED);
     },
@@ -163,13 +220,14 @@ export function EntryEditorForm({
 
   useEffect(() => {
     const handler = (e: Event) => {
-      const { svgPreview, action } = (e as CustomEvent).detail as {
+      const { svgPreview, action, filename: eventFilename } = (e as CustomEvent).detail as {
         svgPreview: string;
         action: "download" | "attachment";
+        filename?: string;
       };
       if (!svgPreview) return;
       const blob = new Blob([svgPreview], { type: "image/svg+xml" });
-      const filename = `structure-${Date.now()}.svg`;
+      const filename = eventFilename || `structure-${Date.now()}.svg`;
 
       if (action === "download") {
         const url = URL.createObjectURL(blob);
@@ -346,7 +404,8 @@ export function EntryEditorForm({
           // Other files are handled by BlockNote's built-in uploadFile
         }}
       >
-        <BlockNoteView editor={editor} editable={!readOnly} slashMenu={false} theme={dark ? "dark" : "light"}>
+        <BlockNoteView editor={editor} editable={!readOnly} slashMenu={false} formattingToolbar={false} theme={dark ? "dark" : "light"}>
+          <FormattingToolbarController formattingToolbar={CustomFormattingToolbar} />
           {!readOnly && (
             <SuggestionMenuController
               triggerCharacter="/"

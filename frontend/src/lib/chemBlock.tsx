@@ -1,19 +1,30 @@
-import { useCallback, useRef, useState } from "react";
 import { createReactBlockSpec } from "@blocknote/react";
 import type { ReactCustomBlockRenderProps } from "@blocknote/react";
+import { defaultProps } from "@blocknote/core";
 
 const CHEM_BLOCK_TYPE = "chemStructure" as const;
 
 const chemStructureConfig = {
   type: CHEM_BLOCK_TYPE,
   propSchema: {
-    /** KET JSON — Ketcher's native format. Supports molecules, reactions,
-     *  R-groups, S-groups, etc.  This is the canonical representation. */
+    /** KET JSON — Ketcher's native format. */
     ket: { default: "" },
-    /** SMILES string (molecules only) for search / display fallback */
+    /** SMILES string (molecules only) for search / display fallback. */
     smiles: { default: "" },
-    /** Cached SVG preview for rendering without Ketcher */
+    /** Cached SVG preview for rendering without Ketcher. */
     svgPreview: { default: "" },
+
+    // ── Standard file-block props (enable built-in toolbar buttons) ────
+    /** Data-URI of the SVG — keeps the File* toolbar buttons active. */
+    url: { default: "" },
+    /** User-visible caption rendered below the structure. */
+    caption: { default: "" },
+    /** Filename used when downloading / saving as attachment. */
+    name: { default: "" },
+    /** Whether to show the inline SVG preview. */
+    showPreview: { default: true },
+    /** Block-level text alignment. Must match defaultProps shape. */
+    textAlignment: defaultProps.textAlignment,
   },
   content: "none" as const,
 };
@@ -24,28 +35,10 @@ type ChemBlockProps = ReactCustomBlockRenderProps<
   "none"
 >;
 
-/** Dispatch a custom event to request saving the SVG as an attachment. */
-function dispatchExportSvg(
-  svgPreview: string,
-  action: "download" | "attachment",
-) {
-  window.dispatchEvent(
-    new CustomEvent("chem-export-svg", {
-      detail: { svgPreview, action },
-    }),
-  );
-}
-
 function ChemStructureRender(props: ChemBlockProps) {
   const { block, editor } = props;
-  const { ket, svgPreview } = block.props;
+  const { ket, svgPreview, showPreview, caption, textAlignment } = block.props;
   const isEmpty = !ket;
-
-  // --- Context menu state ---
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(
-    null,
-  );
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const openEditor = () => {
     window.dispatchEvent(
@@ -55,76 +48,35 @@ function ChemStructureRender(props: ChemBlockProps) {
     );
   };
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      if (!svgPreview) return;
-      e.preventDefault();
-      e.stopPropagation();
-      setMenuPos({ x: e.clientX, y: e.clientY });
-      const close = () => {
-        setMenuPos(null);
-        document.removeEventListener("click", close);
-      };
-      // Close on next click anywhere
-      setTimeout(() => document.addEventListener("click", close), 0);
-    },
-    [svgPreview],
-  );
-
   return (
     <div
       className={[
         "group/chem my-2 inline-block rounded border p-3 transition-colors",
-        // No border at rest; visible border on hover / editable
         isEmpty
           ? "border-dashed border-slate-300 dark:border-slate-700"
           : "border-transparent hover:border-slate-300 dark:hover:border-slate-600",
         editor.isEditable ? "cursor-pointer" : "",
       ].join(" ")}
+      style={{ textAlign: textAlignment || "left" }}
       contentEditable={false}
       onClick={editor.isEditable ? openEditor : undefined}
-      onContextMenu={handleContextMenu}
       title={editor.isEditable ? "Click to edit structure" : undefined}
     >
-      {svgPreview ? (
+      {svgPreview && showPreview ? (
         <div
           className="chem-structure-preview [&>svg]:w-auto"
           dangerouslySetInnerHTML={{ __html: svgPreview }}
         />
       ) : (
         <div className="flex h-32 w-48 items-center justify-center text-sm text-slate-400">
-          {isEmpty ? "Click to draw a structure" : "Loading…"}
+          {isEmpty ? "Click to draw a structure" : showPreview ? "Loading…" : "Preview hidden"}
         </div>
       )}
 
-      {/* Context menu */}
-      {menuPos && (
-        <div
-          ref={menuRef}
-          className="fixed z-50 min-w-[160px] rounded border border-slate-200 bg-white py-1 text-sm shadow-lg dark:border-slate-700 dark:bg-slate-800"
-          style={{ left: menuPos.x, top: menuPos.y }}
-        >
-          <button
-            className="w-full px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-200"
-            onClick={(e) => {
-              e.stopPropagation();
-              dispatchExportSvg(svgPreview, "download");
-              setMenuPos(null);
-            }}
-          >
-            Download as SVG
-          </button>
-          <button
-            className="w-full px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-700 dark:text-slate-200"
-            onClick={(e) => {
-              e.stopPropagation();
-              dispatchExportSvg(svgPreview, "attachment");
-              setMenuPos(null);
-            }}
-          >
-            Save to notebook as attachment
-          </button>
-        </div>
+      {caption && (
+        <p className="mt-1 text-center text-xs text-slate-500 dark:text-slate-400">
+          {caption}
+        </p>
       )}
     </div>
   );
@@ -132,9 +84,6 @@ function ChemStructureRender(props: ChemBlockProps) {
 
 /**
  * Custom BlockNote block for chemical structures.
- *
- * Call the returned factory (no options needed) to get the block spec, then
- * merge it into your schema's `blockSpecs`.
  */
 export const ChemStructureBlock = createReactBlockSpec(chemStructureConfig, {
   render: ChemStructureRender,

@@ -176,8 +176,8 @@ def _render_chem_structure(props: dict, lines: list[str], prefix: str) -> None:
     if not svg:
         return
 
-    smiles = props.get("smiles", "")
-    alt = smiles if smiles else "chemical structure"
+    caption = props.get("caption", "")
+    alt = caption if caption else "chemical structure"
 
     b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
     data_uri = f"data:image/svg+xml;base64,{b64}"
