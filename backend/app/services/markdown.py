@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import re
 
 
@@ -144,6 +145,9 @@ def _render_block(
             lines.append(f"{prefix}*{caption}*")
         lines.append("")
 
+    elif btype == "chemStructure":
+        _render_chem_structure(props, lines, prefix)
+
     elif btype == "table":
         _render_table(content, lines, prefix)
 
@@ -155,6 +159,30 @@ def _render_block(
 
     if children:
         _render_blocks(children, lines, indent + 1, counters)
+
+
+def _render_chem_structure(props: dict, lines: list[str], prefix: str) -> None:
+    """Render a chemical structure block.
+
+    Every saved structure has an SVG preview (generated on save by
+    ``KetcherModal``).  We emit it as a data-URI ``![…](data:…)`` image so
+    that pandoc-based exports (HTML, PDF, DOCX) can embed the structure.
+    The SMILES string (when available) is used as alt text.
+
+    Blocks with no SVG are empty (user inserted the slash-command but never
+    drew anything) and are silently skipped.
+    """
+    svg = props.get("svgPreview", "")
+    if not svg:
+        return
+
+    smiles = props.get("smiles", "")
+    alt = smiles if smiles else "chemical structure"
+
+    b64 = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+    data_uri = f"data:image/svg+xml;base64,{b64}"
+    lines.append(f"{prefix}![{alt}]({data_uri})")
+    lines.append("")
 
 
 def _render_table(content: dict | list, lines: list[str], prefix: str) -> None:

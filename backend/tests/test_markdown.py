@@ -177,6 +177,53 @@ class TestTitle:
         assert not md.startswith("#")
 
 
+class TestChemStructure:
+    def test_svg_preview_emits_data_uri(self):
+        blocks = [
+            _block(
+                "chemStructure",
+                props={
+                    "ket": '{"root":{}}',
+                    "smiles": "CCO",
+                    "svgPreview": "<svg><circle/></svg>",
+                },
+            )
+        ]
+        md = blocks_to_markdown(blocks)
+        assert "![CCO](data:image/svg+xml;base64," in md
+
+    def test_empty_structure_skipped(self):
+        """A block inserted but never drawn has no SVG and is skipped."""
+        blocks = [_block("chemStructure", props={})]
+        md = blocks_to_markdown(blocks)
+        assert md.strip() == ""
+
+    def test_alt_text_is_smiles(self):
+        blocks = [
+            _block(
+                "chemStructure",
+                props={
+                    "ket": '{"root":{}}',
+                    "smiles": "O=C=O",
+                    "svgPreview": "<svg/>",
+                },
+            )
+        ]
+        md = blocks_to_markdown(blocks)
+        assert md.startswith("![O=C=O]")
+
+    def test_alt_text_fallback_when_no_smiles(self):
+        """Reactions can't produce SMILES; alt text falls back to generic label."""
+        blocks = [
+            _block(
+                "chemStructure",
+                props={"ket": '{"root":{}}', "svgPreview": "<svg/>"},
+            )
+        ]
+        md = blocks_to_markdown(blocks)
+        assert md.startswith("![chemical structure]")
+
+
 class TestEmpty:
     def test_empty_blocks(self):
         md = blocks_to_markdown([])
