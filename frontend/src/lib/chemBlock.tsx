@@ -1,6 +1,7 @@
 import { createReactBlockSpec } from "@blocknote/react";
 import type { ReactCustomBlockRenderProps } from "@blocknote/react";
 import { defaultProps } from "@blocknote/core";
+import { FlaskConical } from "lucide-react";
 
 const CHEM_BLOCK_TYPE = "chemStructure" as const;
 
@@ -50,8 +51,10 @@ function ChemStructureRender(props: ChemBlockProps) {
 
   return (
     <div
+      data-file-block=""
       className={[
-        "group/chem my-2 inline-block rounded border p-3 transition-colors",
+        "group/chem my-2 rounded border p-3 transition-colors",
+        !showPreview && !isEmpty ? "block" : "inline-block",
         isEmpty
           ? "border-dashed border-slate-300 dark:border-slate-700"
           : "border-transparent hover:border-slate-300 dark:hover:border-slate-600",
@@ -62,14 +65,25 @@ function ChemStructureRender(props: ChemBlockProps) {
       onClick={editor.isEditable ? openEditor : undefined}
       title={editor.isEditable ? "Click to edit structure" : undefined}
     >
-      {svgPreview && showPreview ? (
+      {isEmpty ? (
+        <div className="flex h-32 w-48 items-center justify-center text-sm text-slate-400">
+          Click to draw a structure
+        </div>
+      ) : showPreview && svgPreview ? (
         <div
           className="chem-structure-preview [&>svg]:w-auto"
           dangerouslySetInnerHTML={{ __html: svgPreview }}
         />
+      ) : !showPreview ? (
+        <div className="bn-file-name-with-icon" contentEditable={false} draggable={false}>
+          <div className="bn-file-icon">
+            <FlaskConical size={24} />
+          </div>
+          <p className="bn-file-name">{block.props.name || "structure"}</p>
+        </div>
       ) : (
         <div className="flex h-32 w-48 items-center justify-center text-sm text-slate-400">
-          {isEmpty ? "Click to draw a structure" : showPreview ? "Loading…" : "Preview hidden"}
+          Loading…
         </div>
       )}
 
