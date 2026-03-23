@@ -45,6 +45,8 @@ type EntryEditorFormProps = {
   onSave: (payload: SavePayload) => Promise<void>;
   uploadFile?: (file: File) => Promise<string>;
   onAttachmentDrop?: (data: AttachmentDropData) => Promise<string>;
+  /** Called when user right-clicks a structure and picks "Save to notebook" */
+  onExportSvgAttachment?: (svgBlob: Blob, filename: string) => void;
 };
 
 const AUTO_SAVE_DELAY = 2000; // ms
@@ -58,6 +60,24 @@ type KetcherState = {
 
 const KETCHER_CLOSED: KetcherState = { open: false, blockId: "", ket: "" };
 
+/** Read the current theme from the .dark class on <html> (Tailwind convention). */
+function useDarkMode(): boolean {
+  const [dark, setDark] = useState(
+    () => document.documentElement.classList.contains("dark"),
+  );
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
+  return dark;
+}
+
 export function EntryEditorForm({
   initialTitle = "",
   initialContent,
@@ -67,7 +87,9 @@ export function EntryEditorForm({
   onSave,
   uploadFile,
   onAttachmentDrop,
+  onExportSvgAttachment,
 }: EntryEditorFormProps) {
+  const dark = useDarkMode();
   const [title, setTitle] = useState(initialTitle);
   const titleRef = useRef(title);
   titleRef.current = title;
@@ -132,6 +154,36 @@ export function EntryEditorForm({
 
   const handleKetcherClose = useCallback(() => {
     setKetcher(KETCHER_CLOSED);
+  }, []);
+
+  // --- SVG export from structure context menu -------------------------
+
+  const onExportSvgAttachmentRef = useRef(onExportSvgAttachment);
+  onExportSvgAttachmentRef.current = onExportSvgAttachment;
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { svgPreview, action } = (e as CustomEvent).detail as {
+        svgPreview: string;
+        action: "download" | "attachment";
+      };
+      if (!svgPreview) return;
+      const blob = new Blob([svgPreview], { type: "image/svg+xml" });
+      const filename = `structure-${Date.now()}.svg`;
+
+      if (action === "download") {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      } else if (action === "attachment" && onExportSvgAttachmentRef.current) {
+        onExportSvgAttachmentRef.current(blob, filename);
+      }
+    };
+    window.addEventListener("chem-export-svg", handler);
+    return () => window.removeEventListener("chem-export-svg", handler);
   }, []);
 
   // --- save helpers (disabled in readOnly mode) -----------------------
@@ -294,7 +346,7 @@ export function EntryEditorForm({
           // Other files are handled by BlockNote's built-in uploadFile
         }}
       >
-        <BlockNoteView editor={editor} editable={!readOnly} slashMenu={false}>
+        <BlockNoteView editor={editor} editable={!readOnly} slashMenu={false} theme={dark ? "dark" : "light"}>
           {!readOnly && (
             <SuggestionMenuController
               triggerCharacter="/"

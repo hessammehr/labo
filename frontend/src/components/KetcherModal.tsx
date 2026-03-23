@@ -16,6 +16,11 @@ type Props = {
   onClose: () => void;
 };
 
+/** Check if the page is currently in dark mode (Tailwind .dark on <html>). */
+function isDarkMode(): boolean {
+  return document.documentElement.classList.contains("dark");
+}
+
 export function KetcherModal({ open, initialKet, onSave, onClose }: Props) {
   const ketcherRef = useRef<Ketcher | null>(null);
 
@@ -67,11 +72,14 @@ export function KetcherModal({ open, initialKet, onSave, onClose }: Props) {
         // Reactions / complex structures can't be represented as SMILES
       }
 
-      // SVG preview is best-effort
+      // SVG preview
       let svg = "";
       try {
         const result = await ketcher.generateImage(ket, {
           outputFormat: "svg",
+          // Indigo default bond-length is 40px in the editor.
+          // 30 = 75% of default → structures render ~25% smaller.
+          "bond-length": 30,
         });
         if (result instanceof Blob) {
           svg = await result.text();
@@ -89,6 +97,11 @@ export function KetcherModal({ open, initialKet, onSave, onClose }: Props) {
   }, [onSave]);
 
   if (!open) return null;
+
+  // Ketcher has no built-in dark mode. We apply a CSS filter inversion on
+  // the Ketcher container when the page is in dark mode. This gives a
+  // convincing dark look without forking Ketcher's internals.
+  const dark = isDarkMode();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -114,8 +127,11 @@ export function KetcherModal({ open, initialKet, onSave, onClose }: Props) {
           </div>
         </div>
 
-        {/* Ketcher canvas */}
-        <div className="min-h-0 flex-1">
+        {/* Ketcher canvas — CSS filter inversion for dark mode */}
+        <div
+          className="min-h-0 flex-1"
+          style={dark ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
+        >
           {structServiceProvider ? (
             <Suspense
               fallback={

@@ -1072,6 +1072,15 @@ export function WorkspacePage() {
                 // Normal drop: reference the existing attachment (no move/copy)
                 return `/api/attachments/${drop.attachmentId}`;
               }}
+              onExportSvgAttachment={async (blob: Blob, filename: string) => {
+                const form = new FormData();
+                form.append("entry_id", selectedEntry.id);
+                form.append("file", new File([blob], filename, { type: "image/svg+xml" }));
+                await api.post("/attachments/", form, {
+                  headers: { "Content-Type": "multipart/form-data" },
+                });
+                await queryClient.invalidateQueries({ queryKey: ["attachments"] });
+              }}
             />
           )
         ) : (

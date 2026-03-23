@@ -28,3 +28,10 @@ body {
 .bn-inline-content {
   background: inherit !important;
 }
+
+/* Invert chemical structure SVG previews in dark mode.
+   Indigo renders black-on-transparent; invert+hue-rotate gives
+   white-on-transparent while preserving element colours. */
+.dark .chem-structure-preview {
+  filter: invert(1) hue-rotate(180deg);
+}
