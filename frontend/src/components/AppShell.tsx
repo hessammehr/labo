@@ -3,21 +3,27 @@ import { Moon, Sun } from "lucide-react";
 
 import { useAuth } from "../lib/auth";
 import { useTheme } from "../lib/useTheme";
+import { useSearchDispatch } from "../lib/searchContext";
 import { Logo } from "./Logo";
+import { SearchBar } from "./SearchBar";
 
 
 export function AppShell() {
   const { user, logout } = useAuth();
   const { theme, toggle } = useTheme();
+  const dispatchSearch = useSearchDispatch();
 
   return (
     <div className="h-screen flex flex-col bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="shrink-0 border-b bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center justify-between px-4 py-3">
-          <Link to="/">
+        <div className="grid grid-cols-[auto_1fr_auto] items-center gap-4 px-4 py-2">
+          <Link to="/" className="shrink-0">
             <Logo className="h-8 w-auto" />
           </Link>
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex justify-center">
+            <SearchBar onSelect={dispatchSearch} />
+          </div>
+          <div className="flex shrink-0 items-center gap-4 text-sm">
             <span className="text-slate-600 dark:text-slate-300">{user?.email}</span>
             <button
               onClick={toggle}

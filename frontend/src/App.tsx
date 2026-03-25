@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./components/AppShell";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { SearchProvider } from "./lib/searchContext";
 import { LoginPage } from "./pages/LoginPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { WorkspacePage } from "./pages/WorkspacePage";
@@ -16,7 +17,9 @@ function App() {
         path="/"
         element={
           <ProtectedRoute>
-            <AppShell />
+            <SearchProvider>
+              <AppShell />
+            </SearchProvider>
           </ProtectedRoute>
         }
       >

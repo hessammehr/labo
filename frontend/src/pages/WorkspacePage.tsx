@@ -32,8 +32,8 @@ import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
 import { ApiAccessModal } from "../components/ApiAccessModal";
 import { ShareModal } from "../components/ShareModal";
 import { useIoEvents, ioKey } from "../lib/useIoEvents";
-import { SearchModal } from "../components/SearchModal";
 import { api } from "../lib/api";
+import { useSearchSubscribe } from "../lib/searchContext";
 import type { Attachment, Entry, Notebook, SearchResult } from "../lib/types";
 
 type ContextMenuState =
@@ -123,8 +123,6 @@ export function WorkspacePage() {
     resourceName: string;
   } | null>(null);
 
-  const [searchOpen, setSearchOpen] = useState(false);
-
   const [leftPaneWidth, setLeftPaneWidth] = useState(320);
   const [rightPaneWidth, setRightPaneWidth] = useState(280);
   const [revisionsPaneHeight, setRevisionsPaneHeight] = useState(200);
@@ -138,18 +136,6 @@ export function WorkspacePage() {
     startWidth: number;
     startHeight: number;
   } | null>(null);
-
-  // Cmd+K / Ctrl+K to open search
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setSearchOpen((prev) => !prev);
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
@@ -566,16 +552,18 @@ export function WorkspacePage() {
     return level !== "read";
   };
 
-  const onSearchSelect = (result: SearchResult) => {
-    if (result.type === "entry" && result.notebook_id) {
-      // Expand the parent notebook and select the entry
-      setExpandedNotebookIds((prev) => ({ ...prev, [result.notebook_id!]: true }));
-      selectEntry(result.id);
-    } else if (result.type === "notebook") {
-      // Expand the notebook
-      setExpandedNotebookIds((prev) => ({ ...prev, [result.id]: true }));
-    }
-  };
+  // Subscribe to search selections from the header search bar
+  const subscribeSearch = useSearchSubscribe();
+  useEffect(() => {
+    return subscribeSearch((result: SearchResult) => {
+      if (result.type === "entry" && result.notebook_id) {
+        setExpandedNotebookIds((prev) => ({ ...prev, [result.notebook_id!]: true }));
+        selectEntry(result.id);
+      } else if (result.type === "notebook") {
+        setExpandedNotebookIds((prev) => ({ ...prev, [result.id]: true }));
+      }
+    });
+  }, [subscribeSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const SharingIcon = ({ level }: { level: string | null }) => {
     if (!level) return null;
@@ -1359,11 +1347,6 @@ export function WorkspacePage() {
         />
       )}
 
-      <SearchModal
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onSelect={onSearchSelect}
-      />
     </div>
   );
 }
