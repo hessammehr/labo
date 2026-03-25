@@ -61,3 +61,13 @@ export type ScopedToken = {
 export type ScopedTokenCreated = ScopedToken & {
   token: string;
 };
+
+export type SearchResult = {
+  type: "notebook" | "entry";
+  id: string;
+  title: string;
+  notebook_id: string | null;
+  notebook_title: string | null;
+  snippet: string;
+  score: number;
+};
