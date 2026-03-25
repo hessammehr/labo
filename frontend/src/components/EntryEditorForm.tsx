@@ -22,7 +22,7 @@ import {
 import type { BlockSchema, InlineContentSchema, StyleSchema } from "@blocknote/core";
 import { BlockNoteView } from "@blocknote/mantine";
 import { flip, offset, shift, size } from "@floating-ui/react";
-import { FlaskConical } from "lucide-react";
+import { FlaskConical, GitCommitHorizontal } from "lucide-react";
 import { ChemStructureBlock } from "../lib/chemBlock";
 import {
   ChemReplaceButton,
@@ -343,9 +343,10 @@ export function EntryEditorForm({
               save(true);
             }}
             disabled={isSaving}
-            className="rounded border border-slate-300 px-3 py-1 text-sm hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
+            title="Create revision"
+            className="rounded border border-slate-300 p-1.5 hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:hover:bg-slate-800"
           >
-            {isSaving ? "Saving..." : "Save"}
+            <GitCommitHorizontal size={18} />
           </button>
         )}
       </div>
