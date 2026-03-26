@@ -4,13 +4,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - db-data:/app/labo.db
-      - storage-data:/app/storage
+      - labo-data:/app/data
     environment:
-      - LABO_DATABASE_URL=sqlite:///./labo.db
+      - LABO_DATA_DIR=/app/data
       - LABO_JWT_SECRET=${LABO_JWT_SECRET:-change-me-in-production}
-      - LABO_STORAGE_DIR=/app/storage
 
 volumes:
-  db-data:
-  storage-data:
+  labo-data:

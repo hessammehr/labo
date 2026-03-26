@@ -1,8 +1,12 @@
-.PHONY: help dev dev-backend dev-frontend run serve serve-bg serve-off migrate migrate-new test lint fmt build-frontend clean
+.PHONY: help dev dev-backend dev-frontend run serve serve-bg serve-off migrate migrate-new test lint fmt build-frontend clean export import
 
 BACKEND_DIR := backend
 FRONTEND_DIR := frontend
 UVICORN := uv run python -m uvicorn
+
+# Read LABO_DATA_DIR from backend/.env if it exists, default to backend/data
+-include $(BACKEND_DIR)/.env
+DATA_DIR ?= $(BACKEND_DIR)/data
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -49,5 +53,19 @@ lint: ## Lint backend code
 fmt: ## Format backend code
 	cd $(BACKEND_DIR) && uvx ruff format .
 
+export: ## Export data to archive (usage: make export file=backup.tar.gz)
+	@tar -caf $(file) -C $(DATA_DIR) .
+	@echo "Exported $(DATA_DIR) → $(file)"
+
+import: ## Import data from archive (usage: make import file=backup.tar.gz)
+	@if [ -f "$(DATA_DIR)/labo.db" ] || [ -d "$(DATA_DIR)/storage" ]; then \
+		printf "Data already exists in $(DATA_DIR). Overwrite? [y/N] "; \
+		read ans; \
+		[ "$$ans" = "y" ] || [ "$$ans" = "Y" ] || { echo "Aborted."; exit 1; }; \
+	fi
+	@mkdir -p $(DATA_DIR)
+	@tar -xaf $(file) -C $(DATA_DIR)
+	@echo "Imported $(file) → $(DATA_DIR)"
+
 clean: ## Remove generated files
-	rm -rf $(BACKEND_DIR)/.venv $(BACKEND_DIR)/labo.db $(BACKEND_DIR)/storage $(FRONTEND_DIR)/dist $(FRONTEND_DIR)/node_modules
+	rm -rf $(BACKEND_DIR)/.venv $(DATA_DIR) $(FRONTEND_DIR)/dist $(FRONTEND_DIR)/node_modules

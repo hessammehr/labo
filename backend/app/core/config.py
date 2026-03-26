@@ -3,8 +3,8 @@ from pathlib import Path
 
 
 class Settings(BaseSettings):
-    # Database
-    database_url: str = "sqlite:///./labo.db"
+    # Data directory — single location for all persistent state
+    data_dir: Path = Path("./data")
 
     # Session
     session_cookie_name: str = "labo_session"
@@ -12,13 +12,19 @@ class Settings(BaseSettings):
     cookie_secure: bool = False  # set True when behind HTTPS
     cookie_samesite: str = "lax"
 
-    # Storage
-    storage_dir: Path = Path("./storage")
-
     # App
     debug: bool = False
 
-    model_config = {"env_prefix": "LABO_"}
+    model_config = {"env_prefix": "LABO_", "env_file": ".env"}
+
+    @property
+    def database_url(self) -> str:
+        db_path = self.data_dir / "labo.db"
+        return f"sqlite:///{db_path}"
+
+    @property
+    def storage_dir(self) -> Path:
+        return self.data_dir / "storage"
 
 
 settings = Settings()

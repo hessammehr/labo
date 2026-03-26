@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 .venv/
 *.db
+data/
 storage/
 .env
 *.egg-info/
