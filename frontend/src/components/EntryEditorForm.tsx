@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   BlockNoteSchema,
   defaultBlockSpecs,
+  createHeadingBlockSpec,
   type PartialBlock,
 } from "@blocknote/core";
 import {
@@ -72,6 +73,8 @@ const CustomFormattingToolbar = () => {
 const schema = BlockNoteSchema.create({
   blockSpecs: {
     ...defaultBlockSpecs,
+    // Override heading to exclude H1 (the entry title serves as H1)
+    heading: createHeadingBlockSpec({ levels: [2, 3], defaultLevel: 2 }),
     chemStructure: ChemStructureBlock(),
   },
 });
