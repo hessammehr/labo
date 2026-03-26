@@ -351,7 +351,7 @@ export function EntryEditorForm({
         )}
       </div>
       <div
-        className="min-h-0 flex-1 overflow-auto"
+        className="min-h-0 flex-1 overflow-auto flex flex-col"
         onDragOver={(e) => {
           // Prevent browser default (open file) for all drag types over the editor
           e.preventDefault();

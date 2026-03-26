@@ -29,6 +29,16 @@ body {
   background: inherit !important;
 }
 
+/* Make the editor fill the scrollable container so that drops below the last
+   block still land inside ProseMirror's bounding box. */
+.bn-container {
+  flex: 1;
+}
+
+.bn-editor {
+  min-height: 100%;
+}
+
 /* Invert chemical structure SVG previews in dark mode.
    Indigo renders black-on-transparent; invert+hue-rotate gives
    white-on-transparent while preserving element colours. */
