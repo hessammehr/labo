@@ -1,12 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
 import type { Ketcher } from "ketcher-core";
 
-// Lazy-load the Editor component (keeps ~5 MB out of initial bundle)
+// Lazy-load both the Editor component and its CSS so that nothing from
+// ketcher-react or ketcher-standalone lands in the initial bundle.
 const KetcherEditor = lazy(() =>
-  import("ketcher-react").then((m) => ({ default: m.Editor })),
+  import("ketcher-react/dist/index.css").then(() =>
+    import("ketcher-react").then((m) => ({ default: m.Editor })),
+  ),
 );
-
-import "ketcher-react/dist/index.css";
 
 type Props = {
   open: boolean;

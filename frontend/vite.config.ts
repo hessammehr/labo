@@ -17,7 +17,18 @@ export default defineConfig({
       ],
       transformMixedEsModules: true,
     },
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes("ketcher-standalone") || id.includes("ketcher-react"))
+            return "ketcher";
+        },
+      },
+    },
   },
+  // Pre-bundle ketcher's CJS dependencies for the dev server.
+  // Has no effect on the production build.
+  // See https://github.com/epam/ketcher/issues/5565
   optimizeDeps: {
     include: ["ketcher-core", "ketcher-react", "ketcher-standalone"],
   },
