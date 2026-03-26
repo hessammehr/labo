@@ -88,7 +88,7 @@ function ChemStructureRender(props: ChemBlockProps) {
       )}
 
       {caption && (
-        <p className="mt-1 text-center text-xs text-slate-500 dark:text-slate-400">
+        <p className="bn-file-caption">
           {caption}
         </p>
       )}
