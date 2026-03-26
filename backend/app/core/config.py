@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from pathlib import Path
 
@@ -16,6 +17,11 @@ class Settings(BaseSettings):
     debug: bool = False
 
     model_config = {"env_prefix": "LABO_", "env_file": ".env"}
+
+    @model_validator(mode="after")
+    def _ensure_data_dir_exists(self):
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        return self
 
     @property
     def database_url(self) -> str:
