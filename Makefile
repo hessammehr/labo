@@ -38,6 +38,12 @@ serve: ## Run server and expose over HTTPS via Tailscale
 	@trap 'tailscale serve --bg off' INT TERM EXIT; \
 	cd $(BACKEND_DIR) && $(UVICORN) app.main:app --host 127.0.0.1 --port 8000
 
+serve-dev: ## Serve dev servers over Tailscale with auto-reload
+	@tailscale serve --bg --https=443 http://127.0.0.1:5173
+	@trap 'tailscale serve --bg off' INT TERM EXIT; \
+	$(MAKE) dev; \
+	wait
+
 migrate: ## Run database migrations
 	cd $(BACKEND_DIR) && uv run alembic upgrade head
 
