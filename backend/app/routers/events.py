@@ -2,26 +2,70 @@
 
 import asyncio
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Cookie, Header, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
-from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.config import settings
+from app.core.database import SessionLocal
 from app.core.events import event_hub
-from app.models import User
+from app.core.security import hash_api_key
+from app.models import ApiKey, Session, User
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+
+def _authenticate_eagerly(
+    session_cookie: str | None,
+    x_api_key: str | None,
+) -> str:
+    """Authenticate using a short-lived DB session and return the user ID.
+
+    This avoids holding a DB connection open for the entire SSE stream.
+    """
+    from datetime import datetime, timezone
+
+    db = SessionLocal()
+    try:
+        user: User | None = None
+
+        if session_cookie:
+            session = db.query(Session).filter(Session.id == session_cookie).first()
+            if session:
+                now = datetime.now(timezone.utc)
+                expires = session.expires_at
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=timezone.utc)
+                if expires > now:
+                    user = session.user
+
+        if user is None and x_api_key:
+            key_hash = hash_api_key(x_api_key)
+            api_key = db.query(ApiKey).filter(ApiKey.key_hash == key_hash).first()
+            if api_key:
+                user = api_key.user
+
+        if user is None or user.status != "active":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Not authenticated",
+            )
+
+        return user.id
+    finally:
+        db.close()
 
 
 @router.get("/io")
 async def io_events(
     request: Request,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    session_cookie: str | None = Cookie(None, alias=settings.session_cookie_name),
+    x_api_key: str | None = Header(None),
 ):
     """SSE stream of file I/O events for the current user's resources."""
-    queue = event_hub.subscribe(user.id)
+    # Authenticate eagerly and release the DB connection before streaming.
+    user_id = _authenticate_eagerly(session_cookie, x_api_key)
+
+    queue = event_hub.subscribe(user_id)
 
     async def stream():
         try:
@@ -38,7 +82,7 @@ async def io_events(
                     # Send keepalive comment
                     yield ": keepalive\n\n"
         finally:
-            event_hub.unsubscribe(user.id, queue)
+            event_hub.unsubscribe(user_id, queue)
 
     return StreamingResponse(
         stream(),
