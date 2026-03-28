@@ -24,10 +24,12 @@ import {
   Share2,
   Trash2,
   UserCheck,
+  X,
 } from "lucide-react";
 
 import { EntryEditorForm, type AttachmentDropData } from "../components/EntryEditorForm";
 import { LabBook, LabBookPlus } from "../components/icons";
+import { usePanels } from "../components/AppShell";
 import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
 import { ApiAccessModal } from "../components/ApiAccessModal";
 import { ShareModal } from "../components/ShareModal";
@@ -89,6 +91,7 @@ function isTextMime(mimeType: string): boolean {
 }
 
 export function WorkspacePage() {
+  const { leftOpen, setLeftOpen, rightOpen, setRightOpen, isWide } = usePanels();
   const queryClient = useQueryClient();
   const { indicators: ioIndicators } = useIoEvents(
     (event) => {
@@ -172,6 +175,8 @@ export function WorkspacePage() {
     setSelectedEntryId(entryId);
     setSelectedAttachmentId(null);
     setPreviewRevision(null);
+    // When the sidebar is an overlay, close it after selecting an entry
+    if (!isWide) setLeftOpen(false);
   };
 
   const notebooksQuery = useQuery({
@@ -577,16 +582,48 @@ export function WorkspacePage() {
 
   return (
     <div
-      className="grid h-full bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
-      style={{ gridTemplateColumns: `${leftPaneWidth}px 1px minmax(0,1fr) 1px ${rightPaneWidth}px` }}
-      onClick={() => setContextMenu(null)}
+      className="relative h-full overflow-hidden bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 grid"
+      style={{
+        gridTemplateColumns: [
+          leftOpen && isWide ? `${leftPaneWidth}px 1px` : "auto",
+          "minmax(0,1fr)",
+          rightOpen && isWide ? `1px ${rightPaneWidth}px` : "auto",
+        ].join(" "),
+      }}
+      onClick={() => { setContextMenu(null); }}
       onContextMenu={(event) => {
         if (event.target === event.currentTarget) {
           openContextMenu(event, { x: event.clientX, y: event.clientY, kind: "root" });
         }
       }}
     >
-      <aside className="flex flex-col min-h-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm">
+      {/* Overlay backdrop — shown when any panel is open as overlay (narrow viewport) */}
+      {!isWide && (leftOpen || rightOpen) && (
+        <div
+          className="panel-backdrop"
+          onClick={() => { setLeftOpen(false); setRightOpen(false); }}
+        />
+      )}
+
+      {/* Left panel — wide: edge tab or inline panel; narrow: edge tab in grid + overlay drawer */}
+      {(isWide ? !leftOpen : true) && (
+        <button
+          onClick={() => setLeftOpen(true)}
+          className="edge-tab edge-tab-left"
+          aria-label="Open explorer"
+        >
+          <span>Explorer</span>
+        </button>
+      )}
+
+      {(isWide ? leftOpen : true) && (
+      <aside
+        className={`flex flex-col min-h-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm ${
+          isWide
+            ? ""
+            : `panel-drawer panel-drawer-left ${leftOpen ? "panel-drawer-open" : ""}`
+        }`}
+      >
         {/* --- Explorer tree (top) --- */}
         <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
@@ -616,6 +653,13 @@ export function WorkspacePage() {
               }}
             >
               <FilePlus2 size={14} />
+            </button>
+            <button
+              title="Close explorer"
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+              onClick={() => setLeftOpen(false)}
+            >
+              <X size={14} />
             </button>
           </div>
         </div>
@@ -718,7 +762,7 @@ export function WorkspacePage() {
                   <SharingIcon level={notebook.sharing_level} />
 
                   <button
-                    className="ml-auto hidden p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 group-hover:block"
+                    className="ml-auto p-1 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 hidden group-hover:block [@media(hover:none)]:block"
                     title="New Entry"
                     onClick={() => {
                       setCreatingEntryNotebookId(notebook.id);
@@ -950,7 +994,7 @@ export function WorkspacePage() {
 
             {/* Preview ↔ Revisions splitter */}
             <div
-              className="h-px shrink-0 cursor-row-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
+              className="row-splitter shrink-0 cursor-row-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
               onMouseDown={(event) => {
                 dragState.current = {
                   side: "preview",
@@ -978,7 +1022,7 @@ export function WorkspacePage() {
           <>
             {/* Revisions splitter */}
             <div
-              className="h-px shrink-0 cursor-row-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
+              className="row-splitter shrink-0 cursor-row-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
               onMouseDown={(event) => {
                 dragState.current = {
                   side: "revisions",
@@ -1005,13 +1049,16 @@ export function WorkspacePage() {
           </>
         )}
       </aside>
+      )}
 
-      <div
-        className="cursor-col-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
-        onMouseDown={(event) => {
-          dragState.current = { side: "left", startX: event.clientX, startY: event.clientY, startWidth: leftPaneWidth, startHeight: 0 };
-        }}
-      />
+      {isWide && leftOpen && (
+        <div
+          className="col-splitter cursor-col-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
+          onMouseDown={(event) => {
+            dragState.current = { side: "left", startX: event.clientX, startY: event.clientY, startWidth: leftPaneWidth, startHeight: 0 };
+          }}
+        />
+      )}
 
       <section className="min-h-0 overflow-hidden bg-white dark:bg-slate-900">
         {selectedEntry ? (
@@ -1104,17 +1151,47 @@ export function WorkspacePage() {
         )}
       </section>
 
-      <div
-        className="cursor-col-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
-        onMouseDown={(event) => {
-          dragState.current = { side: "right", startX: event.clientX, startY: event.clientY, startWidth: rightPaneWidth, startHeight: 0 };
-        }}
-      />
+      {/* Right panel — wide: edge tab or inline panel; narrow: edge tab in grid + overlay drawer */}
+      {(isWide ? rightOpen : false) && (
+        <div
+          className="col-splitter cursor-col-resize bg-slate-300 dark:bg-slate-700 hover:bg-slate-400 dark:hover:bg-slate-600"
+          onMouseDown={(event) => {
+            dragState.current = { side: "right", startX: event.clientX, startY: event.clientY, startWidth: rightPaneWidth, startHeight: 0 };
+          }}
+        />
+      )}
 
-      <aside className="border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">Inspector</div>
-        <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Reserved for future tools.</p>
-      </aside>
+      {(isWide ? !rightOpen : true) && (
+        <button
+          onClick={() => setRightOpen(true)}
+          className="edge-tab edge-tab-right"
+          aria-label="Open inspector"
+        >
+          <span>Inspector</span>
+        </button>
+      )}
+
+      {(isWide ? rightOpen : true) && (
+        <aside
+          className={`border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3 ${
+            isWide
+              ? ""
+              : `panel-drawer panel-drawer-right ${rightOpen ? "panel-drawer-open" : ""}`
+          }`}
+        >
+          <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+            <span>Inspector</span>
+            <button
+              title="Close inspector"
+              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
+              onClick={() => setRightOpen(false)}
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Reserved for future tools.</p>
+        </aside>
+      )}
 
       {contextMenu && (
         <div

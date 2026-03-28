@@ -111,7 +111,7 @@ export function SearchBar({ onSelect }: SearchBarProps) {
   const showDropdown = dropdownOpen && hasQuery;
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-lg" onKeyDown={onKeyDown}>
+    <div ref={containerRef} className="relative w-full min-w-0 max-w-lg" onKeyDown={onKeyDown}>
       {/* Always-visible search input */}
       <div className="flex items-center gap-2 rounded border border-slate-300 bg-slate-50 px-2.5 dark:border-slate-700 dark:bg-slate-800">
         <Search size={14} className="shrink-0 text-slate-400" />
@@ -122,17 +122,17 @@ export function SearchBar({ onSelect }: SearchBarProps) {
           onChange={(e) => onInputChange(e.target.value)}
           onFocus={() => { if (hasQuery) setDropdownOpen(true); }}
           placeholder="Search…"
-          className="flex-1 bg-transparent py-1.5 text-sm outline-none placeholder:text-slate-400 dark:text-slate-100"
+          className="flex-1 min-w-0 bg-transparent py-1.5 text-sm outline-none placeholder:text-slate-400 dark:text-slate-100"
         />
         {query ? (
           <button
             onClick={() => { setQuery(""); setResults([]); setDropdownOpen(false); inputRef.current?.focus(); }}
-            className="rounded p-0.5 hover:bg-slate-200 dark:hover:bg-slate-700"
+            className="shrink-0 rounded p-0.5 hover:bg-slate-200 dark:hover:bg-slate-700"
           >
             <X size={12} className="text-slate-400" />
           </button>
         ) : (
-          <kbd className="rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 dark:border-slate-600">
+          <kbd className="hidden sm:inline-block shrink-0 rounded border border-slate-300 px-1.5 py-0.5 text-[10px] font-medium text-slate-400 dark:border-slate-600">
             ⌘K
           </kbd>
         )}
@@ -140,7 +140,7 @@ export function SearchBar({ onSelect }: SearchBarProps) {
 
       {/* Results dropdown */}
       {showDropdown && (
-        <div className="absolute left-0 right-0 top-full z-50 mt-1 rounded border border-slate-300 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-900">
+        <div className="fixed left-2 right-2 sm:absolute sm:left-0 sm:right-0 top-auto z-50 mt-1 rounded border border-slate-300 bg-white shadow-lg dark:border-slate-600 dark:bg-slate-900">
           <div ref={listRef} className="max-h-[60vh] overflow-y-auto">
             {loading && results.length === 0 && (
               <div className="px-4 py-4 text-center text-sm text-slate-400">Searching…</div>

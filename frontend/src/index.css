@@ -39,6 +39,136 @@ body {
   min-height: 100%;
 }
 
+/* ── Panel overlay drawers ──────────────────────────────────────────
+   On narrow viewports, left and right panels slide in as overlays.
+   They are positioned inside the grid container which has
+   position: relative. */
+
+.panel-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.panel-drawer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 50;
+  width: 300px;
+  max-width: 85vw;
+  transition: transform 0.25s ease-in-out;
+}
+
+.panel-drawer-left {
+  left: 0;
+  transform: translateX(-100%);
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.15);
+}
+
+.panel-drawer-right {
+  right: 0;
+  transform: translateX(100%);
+  box-shadow: -2px 0 12px rgba(0, 0, 0, 0.15);
+}
+
+.panel-drawer-open {
+  transform: translateX(0);
+}
+
+/* ── Edge tabs ─────────────────────────────────────────────────────
+   Collapsed panels show a thin vertical tab at the edge of the
+   workspace. The label is rotated sideways. */
+
+.edge-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--tab-color, #64748b);
+  transition: background 0.15s, color 0.15s;
+}
+
+.edge-tab:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+:is(.dark) .edge-tab {
+  --tab-color: #64748b;
+}
+
+:is(.dark) .edge-tab:hover {
+  background: #1e293b;
+  color: #cbd5e1;
+}
+
+.edge-tab span {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding: 8px 0;
+}
+
+.edge-tab-left {
+  border-right: 1px solid #e2e8f0;
+}
+
+.edge-tab-right {
+  border-left: 1px solid #e2e8f0;
+}
+
+:is(.dark) .edge-tab-left {
+  border-right-color: #1e293b;
+}
+
+:is(.dark) .edge-tab-right {
+  border-left-color: #1e293b;
+}
+
+/* ── Splitter hit areas ─────────────────────────────────────────────
+   The visible splitter is 1px but the grab target should be wider.
+   We use a transparent element with a centered visible line via
+   box-shadow, and negative margins to avoid affecting layout. */
+
+.col-splitter {
+  width: 1px;
+  position: relative;
+}
+
+.col-splitter::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  right: -4px;
+  cursor: col-resize;
+}
+
+.row-splitter {
+  height: 1px;
+  position: relative;
+}
+
+.row-splitter::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -4px;
+  bottom: -4px;
+  cursor: row-resize;
+}
+
 /* Invert chemical structure SVG previews in dark mode.
    Indigo renders black-on-transparent; invert+hue-rotate gives
    white-on-transparent while preserving element colours. */
