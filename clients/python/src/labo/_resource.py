@@ -184,6 +184,29 @@ class Resource(PathLike):
         )
         resp.raise_for_status()
 
+    # -- Rename --------------------------------------------------------------
+
+    def rename(self, new_name: str) -> Resource:
+        """Rename this entry or file. Returns a new Resource with the updated path.
+
+        Follows the pathlib convention where ``rename()`` returns the new path.
+        """
+        import json
+
+        resp = self._get_client().patch(
+            self._url,
+            content=json.dumps({"name": new_name}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        resp.raise_for_status()
+        new_path = resp.json()["path"]
+        return Resource(
+            self._base_url,
+            self._token,
+            _path=new_path,
+            _client=self._client,
+        )
+
     # -- Read operations -----------------------------------------------------
 
     def read_bytes(self) -> bytes:

@@ -131,6 +131,53 @@ class TestReadContent:
         assert "body" in resp.text
 
 
+class TestRename:
+    def test_rename_entry(self, client):
+        _, _, token = _setup(client)
+        resp = client.patch(
+            "/api/v1/files/Experiment 1",
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({"name": "Experiment 2"}),
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"path": "Experiment 2", "status": "renamed"}
+
+        # Old path is gone
+        resp = client.get("/api/v1/files/Experiment 1", params={"content": "blocks"}, headers=_auth(token))
+        assert resp.status_code == 404
+
+        # New path works
+        resp = client.get("/api/v1/files/Experiment 2", params={"content": "blocks"}, headers=_auth(token))
+        assert resp.status_code == 200
+        assert resp.json()["title"] == "Experiment 2"
+
+    def test_rename_readonly_rejected(self, client):
+        client.post("/api/auth/register", json={"name": "D", "email": "d@d.com", "password": "secret123"})
+        client.post("/api/auth/login", json={"email": "d@d.com", "password": "secret123"})
+        nb = client.post("/api/notebooks/", json={"title": "nb4"}).json()
+        client.post("/api/entries/", json={"notebook_id": nb["id"], "title": "E", "content_blocks": [], "tags": []})
+        token = client.post(
+            "/api/scoped-tokens/",
+            json={"resource_type": "notebook", "resource_id": nb["id"], "access_level": "read", "label": "ro"},
+        ).json()["token"]
+
+        resp = client.patch(
+            "/api/v1/files/E",
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({"name": "E2"}),
+        )
+        assert resp.status_code == 403
+
+    def test_rename_missing_name_rejected(self, client):
+        _, _, token = _setup(client)
+        resp = client.patch(
+            "/api/v1/files/Experiment 1",
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({"wrong_key": "x"}),
+        )
+        assert resp.status_code == 400
+
+
 class TestWriteBlocks:
     def test_write_blocks(self, client):
         _, _, token = _setup(client)

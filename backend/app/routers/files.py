@@ -364,6 +364,60 @@ async def write_file(
     return result
 
 
+@router.patch("/{path:path}")
+async def rename_resource(
+    path: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Rename an entry or attachment.
+
+    Send a JSON body with ``{"name": "new name"}``.
+    Returns the new path.
+    """
+    token = _resolve_token(db, request.headers.get("authorization"))
+
+    if token.access_level != "readwrite":
+        raise HTTPException(status_code=403, detail="Token does not have write access")
+
+    entry, attachment = _resolve_path(db, token, path)
+
+    if entry is None:
+        raise HTTPException(status_code=400, detail="Path must point to an entry or file")
+
+    body = json.loads(await request.body())
+    new_name = body.get("name") if isinstance(body, dict) else None
+    if not new_name or not isinstance(new_name, str):
+        raise HTTPException(status_code=400, detail='Expected JSON body: {"name": "new name"}')
+
+    if attachment is not None:
+        # Rename attachment
+        old_path = Path(attachment.storage_uri)
+        new_storage_path = old_path.parent / new_name
+        if old_path.exists():
+            old_path.rename(new_storage_path)
+        attachment.filename = new_name
+        attachment.storage_uri = str(new_storage_path)
+        db.commit()
+
+        # Build new API path
+        if token.resource_type == "notebook":
+            new_full_path = f"{entry.title}/{new_name}"
+        else:
+            new_full_path = new_name
+        return {"path": new_full_path, "status": "renamed"}
+    else:
+        # Rename entry
+        entry.title = new_name
+        db.commit()
+
+        if token.resource_type == "notebook":
+            new_full_path = new_name
+        else:
+            new_full_path = ""
+        return {"path": new_full_path, "status": "renamed"}
+
+
 @router.delete("/{path:path}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(
     path: str,
