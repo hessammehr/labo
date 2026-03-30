@@ -168,6 +168,16 @@ class TestRename:
         )
         assert resp.status_code == 403
 
+    def test_rename_with_slash_rejected(self, client):
+        _, _, token = _setup(client)
+        resp = client.patch(
+            "/api/v1/files/Experiment 1",
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({"name": "other/path"}),
+        )
+        assert resp.status_code == 400
+        assert "move" in resp.json()["detail"].lower()
+
     def test_rename_missing_name_rejected(self, client):
         _, _, token = _setup(client)
         resp = client.patch(

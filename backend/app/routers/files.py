@@ -389,6 +389,8 @@ async def rename_resource(
     new_name = body.get("name") if isinstance(body, dict) else None
     if not new_name or not isinstance(new_name, str):
         raise HTTPException(status_code=400, detail='Expected JSON body: {"name": "new name"}')
+    if "/" in new_name:
+        raise HTTPException(status_code=400, detail="Name must not contain '/'; use rename, not move")
 
     if attachment is not None:
         # Rename attachment
