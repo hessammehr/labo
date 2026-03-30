@@ -11,6 +11,22 @@ def _resource(httpserver: HTTPServer) -> Resource:
     return Resource(httpserver.url_for(""), "test-token")
 
 
+class TestExists:
+    def test_exists_true(self, httpserver: HTTPServer):
+        httpserver.expect_request("/api/v1/files/My Entry", method="HEAD").respond_with_data(
+            "", status=200
+        )
+        entry = _resource(httpserver) / "My Entry"
+        assert entry.exists() is True
+
+    def test_exists_false(self, httpserver: HTTPServer):
+        httpserver.expect_request("/api/v1/files/Nope", method="HEAD").respond_with_data(
+            "", status=404
+        )
+        entry = _resource(httpserver) / "Nope"
+        assert entry.exists() is False
+
+
 class TestReadMarkdown:
     def test_read_markdown(self, httpserver: HTTPServer):
         httpserver.expect_request(

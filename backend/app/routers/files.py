@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -105,6 +105,34 @@ def _resolve_path(
 
     else:
         raise HTTPException(status_code=400, detail="Unsupported resource type")
+
+
+@router.head("/{path:path}")
+def head_file(
+    path: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Check whether a path exists. Returns 200 or 404 with no body."""
+    token = _resolve_token(db, request.headers.get("authorization"))
+    entry, attachment = _resolve_path(db, token, path)
+
+    parts = path.strip("/").split("/") if path.strip("/") else []
+
+    if not parts:
+        # Root always exists
+        return Response(status_code=200)
+
+    if token.resource_type == "notebook" and len(parts) == 1:
+        # Entry-level path: exists if entry was found
+        if entry is None:
+            raise HTTPException(status_code=404)
+        return Response(status_code=200)
+
+    # File-level path
+    if attachment is None:
+        raise HTTPException(status_code=404)
+    return Response(status_code=200)
 
 
 @router.get("/{path:path}")

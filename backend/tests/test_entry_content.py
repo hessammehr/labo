@@ -131,6 +131,38 @@ class TestReadContent:
         assert "body" in resp.text
 
 
+class TestExists:
+    def test_entry_exists(self, client):
+        _, _, token = _setup(client)
+        resp = client.head("/api/v1/files/Experiment 1", headers=_auth(token))
+        assert resp.status_code == 200
+
+    def test_entry_not_found(self, client):
+        _, _, token = _setup(client)
+        resp = client.head("/api/v1/files/No Such Entry", headers=_auth(token))
+        assert resp.status_code == 404
+
+    def test_root_always_exists(self, client):
+        _, _, token = _setup(client)
+        resp = client.head("/api/v1/files/", headers=_auth(token))
+        assert resp.status_code == 200
+
+    def test_file_exists(self, client):
+        _, _, token = _setup(client)
+        client.put(
+            "/api/v1/files/Experiment 1/data.csv",
+            headers={**_auth(token), "Content-Type": "text/csv"},
+            content=b"a,b\n",
+        )
+        resp = client.head("/api/v1/files/Experiment 1/data.csv", headers=_auth(token))
+        assert resp.status_code == 200
+
+    def test_file_not_found(self, client):
+        _, _, token = _setup(client)
+        resp = client.head("/api/v1/files/Experiment 1/nope.csv", headers=_auth(token))
+        assert resp.status_code == 404
+
+
 class TestRename:
     def test_rename_entry(self, client):
         _, _, token = _setup(client)

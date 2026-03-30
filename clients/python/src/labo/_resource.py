@@ -217,6 +217,16 @@ class Resource(PathLike):
             _client=self._client,
         )
 
+    # -- Existence check -----------------------------------------------------
+
+    def exists(self) -> bool:
+        """Return True if this resource exists on the server."""
+        resp = self._get_client().head(self._url)
+        if resp.status_code == 404:
+            return False
+        resp.raise_for_status()
+        return True
+
     # -- Read operations -----------------------------------------------------
 
     def read_bytes(self) -> bytes:
