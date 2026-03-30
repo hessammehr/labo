@@ -7,13 +7,14 @@ Paths are resolved relative to the token's scoped resource:
 Supports streaming reads and chunked streaming writes.
 """
 
+import json
 import mimetypes
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -21,6 +22,7 @@ from app.core.database import get_db
 from app.core.events import IoEvent, event_hub
 from app.core.security import hash_api_key
 from app.models import Attachment, Entry, Notebook, ScopedToken
+from app.services.markdown import blocks_to_markdown
 
 router = APIRouter(prefix="/v1/files", tags=["files"])
 
@@ -109,11 +111,30 @@ def _resolve_path(
 def read_file(
     path: str,
     request: Request,
+    content: str | None = Query(None, description="Entry content format: 'markdown' or 'blocks'"),
     db: Session = Depends(get_db),
 ):
-    """Read a file or list directory contents."""
+    """Read a file or list directory contents.
+
+    Pass ``?content=markdown`` or ``?content=blocks`` to read the entry's
+    text content instead of listing attachments.
+    """
     token = _resolve_token(db, request.headers.get("authorization"))
     entry, attachment = _resolve_path(db, token, path)
+
+    # Entry content access  (?content=markdown|blocks)
+    if content is not None:
+        if content not in ("markdown", "blocks"):
+            raise HTTPException(status_code=400, detail="content must be 'markdown' or 'blocks'")
+        if entry is None:
+            raise HTTPException(status_code=400, detail="Path must point to an entry to read content")
+        if attachment is not None:
+            raise HTTPException(status_code=400, detail="Path must point to an entry, not a file")
+        if content == "markdown":
+            md = blocks_to_markdown(entry.content_blocks or [], title=entry.title)
+            return PlainTextResponse(md, media_type="text/markdown")
+        else:
+            return JSONResponse({"title": entry.title, "blocks": entry.content_blocks or []})
 
     # Directory listing
     if attachment is None:
@@ -169,17 +190,41 @@ def read_file(
 async def write_file(
     path: str,
     request: Request,
+    content: str | None = Query(None, description="Entry content format: 'markdown' or 'blocks'"),
     db: Session = Depends(get_db),
 ):
     """Write (create or overwrite) a file via streaming upload.
 
     Send the file body directly as the request body (not multipart).
     Set Content-Type to the file's MIME type.
+
+    Pass ``?content=markdown`` or ``?content=blocks`` to write the entry's
+    text content instead of an attachment.
     """
     token = _resolve_token(db, request.headers.get("authorization"))
 
     if token.access_level != "readwrite":
         raise HTTPException(status_code=403, detail="Token does not have write access")
+
+    # Entry content write  (?content=blocks)
+    if content is not None:
+        if content != "blocks":
+            raise HTTPException(status_code=400, detail="Only ?content=blocks is supported for writes")
+
+        entry, attachment = _resolve_path(db, token, path)
+        if entry is None:
+            raise HTTPException(status_code=400, detail="Path must point to an entry to write content")
+        if attachment is not None:
+            raise HTTPException(status_code=400, detail="Path must point to an entry, not a file")
+
+        payload = json.loads(await request.body())
+        if not isinstance(payload, dict) or "blocks" not in payload:
+            raise HTTPException(status_code=400, detail='Expected {"blocks": [...], "title": "..."}')
+
+        entry.content_blocks = payload["blocks"]
+        db.commit()
+        db.refresh(entry)
+        return {"status": "updated"}
 
     # Parse the path to find entry + filename
     parts = path.strip("/").split("/") if path.strip("/") else []

@@ -149,6 +149,41 @@ class Resource(PathLike):
     def _url(self) -> str:
         return f"/api/v1/files/{self._path}" if self._path else "/api/v1/files/"
 
+    # -- Entry content access ------------------------------------------------
+
+    def read_markdown(self) -> str:
+        """Read the entry's text content as Markdown.
+
+        Only works when this resource points to an entry (not a file).
+        """
+        resp = self._get_client().get(self._url, params={"content": "markdown"})
+        resp.raise_for_status()
+        return resp.text
+
+    def read_blocks(self) -> list[dict]:
+        """Read the entry's text content as BlockNote JSON blocks.
+
+        Only works when this resource points to an entry (not a file).
+        """
+        resp = self._get_client().get(self._url, params={"content": "blocks"})
+        resp.raise_for_status()
+        return resp.json()["blocks"]
+
+    def write_blocks(self, blocks: list[dict]) -> None:
+        """Write the entry's text content as BlockNote JSON blocks.
+
+        Only works when this resource points to an entry (not a file).
+        """
+        import json
+
+        resp = self._get_client().put(
+            self._url,
+            content=json.dumps({"blocks": blocks}).encode("utf-8"),
+            params={"content": "blocks"},
+            headers={"Content-Type": "application/json"},
+        )
+        resp.raise_for_status()
+
     # -- Read operations -----------------------------------------------------
 
     def read_bytes(self) -> bytes:
