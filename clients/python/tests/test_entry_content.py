@@ -51,11 +51,11 @@ class TestWriteBlocks:
 
 
 class TestRename:
-    def test_rename_returns_new_resource(self, httpserver: HTTPServer):
+    def test_rename_entry(self, httpserver: HTTPServer):
         httpserver.expect_request(
             "/api/v1/files/Old Name",
             method="PATCH",
-            data=json.dumps({"name": "New Name"}),
+            data=json.dumps({"target": "New Name"}),
         ).respond_with_json({"path": "New Name", "status": "renamed"})
 
         entry = _resource(httpserver) / "Old Name"
@@ -65,3 +65,17 @@ class TestRename:
         assert new_entry.name == "New Name"
         # Original is unchanged
         assert str(entry) == "Old Name"
+
+    def test_move_attachment(self, httpserver: HTTPServer):
+        httpserver.expect_request(
+            "/api/v1/files/Entry1/data.csv",
+            method="PATCH",
+            data=json.dumps({"target": "Entry2/data.csv"}),
+        ).respond_with_json({"path": "Entry2/data.csv", "status": "renamed"})
+
+        f = _resource(httpserver) / "Entry1" / "data.csv"
+        new_f = f.rename("Entry2/data.csv")
+
+        assert str(new_f) == "Entry2/data.csv"
+        assert new_f.name == "data.csv"
+        assert str(new_f.parent) == "Entry2"

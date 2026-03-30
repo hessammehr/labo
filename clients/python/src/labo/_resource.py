@@ -184,18 +184,28 @@ class Resource(PathLike):
         )
         resp.raise_for_status()
 
-    # -- Rename --------------------------------------------------------------
+    # -- Rename / move -------------------------------------------------------
 
-    def rename(self, new_name: str) -> Resource:
-        """Rename this entry or file. Returns a new Resource with the updated path.
+    def rename(self, target: str) -> Resource:
+        """Rename or move this entry or file. Returns a new Resource.
 
-        Follows the pathlib convention where ``rename()`` returns the new path.
+        *target* is a path relative to the token root, matching
+        ``pathlib.Path.rename()`` semantics::
+
+            # Rename entry
+            entry = entry.rename("New Title")
+
+            # Rename file in place
+            f = f.rename("Entry/new_name.csv")
+
+            # Move file to another entry
+            f = f.rename("Other Entry/data.csv")
         """
         import json
 
         resp = self._get_client().patch(
             self._url,
-            content=json.dumps({"name": new_name}).encode("utf-8"),
+            content=json.dumps({"target": target}).encode("utf-8"),
             headers={"Content-Type": "application/json"},
         )
         resp.raise_for_status()

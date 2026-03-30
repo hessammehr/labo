@@ -137,7 +137,7 @@ class TestRename:
         resp = client.patch(
             "/api/v1/files/Experiment 1",
             headers={**_auth(token), "Content-Type": "application/json"},
-            content=json.dumps({"name": "Experiment 2"}),
+            content=json.dumps({"target": "Experiment 2"}),
         )
         assert resp.status_code == 200
         assert resp.json() == {"path": "Experiment 2", "status": "renamed"}
@@ -150,6 +150,16 @@ class TestRename:
         resp = client.get("/api/v1/files/Experiment 2", params={"content": "blocks"}, headers=_auth(token))
         assert resp.status_code == 200
         assert resp.json()["title"] == "Experiment 2"
+
+    def test_rename_entry_with_slash_rejected(self, client):
+        """Entry rename must be a bare name — no moving between notebooks."""
+        _, _, token = _setup(client)
+        resp = client.patch(
+            "/api/v1/files/Experiment 1",
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({"target": "some/path"}),
+        )
+        assert resp.status_code == 400
 
     def test_rename_readonly_rejected(self, client):
         client.post("/api/auth/register", json={"name": "D", "email": "d@d.com", "password": "secret123"})
@@ -164,21 +174,11 @@ class TestRename:
         resp = client.patch(
             "/api/v1/files/E",
             headers={**_auth(token), "Content-Type": "application/json"},
-            content=json.dumps({"name": "E2"}),
+            content=json.dumps({"target": "E2"}),
         )
         assert resp.status_code == 403
 
-    def test_rename_with_slash_rejected(self, client):
-        _, _, token = _setup(client)
-        resp = client.patch(
-            "/api/v1/files/Experiment 1",
-            headers={**_auth(token), "Content-Type": "application/json"},
-            content=json.dumps({"name": "other/path"}),
-        )
-        assert resp.status_code == 400
-        assert "move" in resp.json()["detail"].lower()
-
-    def test_rename_missing_name_rejected(self, client):
+    def test_rename_missing_target_rejected(self, client):
         _, _, token = _setup(client)
         resp = client.patch(
             "/api/v1/files/Experiment 1",
@@ -186,6 +186,75 @@ class TestRename:
             content=json.dumps({"wrong_key": "x"}),
         )
         assert resp.status_code == 400
+
+    def test_move_attachment_between_entries(self, client):
+        """Move a file from one entry to another within a notebook."""
+        _, nb_id, token = _setup(client)  # creates "Experiment 1"
+
+        # Create a second entry
+        client.post(
+            "/api/entries/",
+            json={"notebook_id": nb_id, "title": "Experiment 2", "content_blocks": [], "tags": []},
+        )
+
+        # Upload a file to Experiment 1
+        client.put(
+            "/api/v1/files/Experiment 1/data.csv",
+            headers={**_auth(token), "Content-Type": "text/csv"},
+            content=b"a,b\n1,2\n",
+        )
+
+        # Move it to Experiment 2
+        resp = client.patch(
+            "/api/v1/files/Experiment 1/data.csv",
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({"target": "Experiment 2/data.csv"}),
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"path": "Experiment 2/data.csv", "status": "renamed"}
+
+        # Gone from Experiment 1
+        resp = client.get("/api/v1/files/Experiment 1", headers=_auth(token))
+        assert not any(f["name"] == "data.csv" for f in resp.json())
+
+        # Present in Experiment 2
+        resp = client.get("/api/v1/files/Experiment 2", headers=_auth(token))
+        assert any(f["name"] == "data.csv" for f in resp.json())
+
+    def test_move_and_rename_attachment(self, client):
+        _, nb_id, token = _setup(client)
+        client.post(
+            "/api/entries/",
+            json={"notebook_id": nb_id, "title": "Experiment 2", "content_blocks": [], "tags": []},
+        )
+        client.put(
+            "/api/v1/files/Experiment 1/old.csv",
+            headers={**_auth(token), "Content-Type": "text/csv"},
+            content=b"x\n",
+        )
+
+        resp = client.patch(
+            "/api/v1/files/Experiment 1/old.csv",
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({"target": "Experiment 2/new.csv"}),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["path"] == "Experiment 2/new.csv"
+
+    def test_move_to_nonexistent_entry_rejected(self, client):
+        _, _, token = _setup(client)
+        client.put(
+            "/api/v1/files/Experiment 1/f.txt",
+            headers={**_auth(token), "Content-Type": "text/plain"},
+            content=b"hi",
+        )
+
+        resp = client.patch(
+            "/api/v1/files/Experiment 1/f.txt",
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({"target": "No Such Entry/f.txt"}),
+        )
+        assert resp.status_code == 404
 
 
 class TestWriteBlocks:

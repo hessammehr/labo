@@ -370,9 +370,15 @@ async def rename_resource(
     request: Request,
     db: Session = Depends(get_db),
 ):
-    """Rename an entry or attachment.
+    """Rename or move an entry or attachment.
 
-    Send a JSON body with ``{"name": "new name"}``.
+    Send a JSON body with ``{"target": "new/path"}``.  The target is
+    interpreted relative to the token root, matching pathlib semantics:
+
+    - Entry rename:          ``{"target": "New Title"}``
+    - Attachment rename:     ``{"target": "Entry/new.csv"}``
+    - Attachment move:       ``{"target": "Other Entry/file.csv"}``
+
     Returns the new path.
     """
     token = _resolve_token(db, request.headers.get("authorization"))
@@ -386,35 +392,71 @@ async def rename_resource(
         raise HTTPException(status_code=400, detail="Path must point to an entry or file")
 
     body = json.loads(await request.body())
-    new_name = body.get("name") if isinstance(body, dict) else None
-    if not new_name or not isinstance(new_name, str):
-        raise HTTPException(status_code=400, detail='Expected JSON body: {"name": "new name"}')
-    if "/" in new_name:
-        raise HTTPException(status_code=400, detail="Name must not contain '/'; use rename, not move")
+    target = body.get("target") if isinstance(body, dict) else None
+    if not target or not isinstance(target, str):
+        raise HTTPException(status_code=400, detail='Expected JSON body: {"target": "new/path"}')
+
+    target = target.strip("/")
 
     if attachment is not None:
-        # Rename attachment
+        # Parse target into (entry_title, filename) or just (filename,)
+        if token.resource_type == "notebook":
+            target_parts = target.split("/", 1)
+            if len(target_parts) == 2:
+                target_entry_title, target_filename = target_parts
+            else:
+                # Bare filename — stay in same entry
+                target_entry_title = entry.title
+                target_filename = target_parts[0]
+
+            # Resolve target entry
+            if target_entry_title != entry.title:
+                notebook = db.query(Notebook).filter(Notebook.id == token.resource_id).first()
+                target_entry = (
+                    db.query(Entry)
+                    .filter(Entry.notebook_id == notebook.id, Entry.title == target_entry_title)
+                    .first()
+                )
+                if not target_entry:
+                    raise HTTPException(status_code=404, detail=f"Target entry '{target_entry_title}' not found")
+            else:
+                target_entry = entry
+        else:
+            # Entry-scoped: target is just a filename, no moving between entries
+            if "/" in target:
+                raise HTTPException(status_code=400, detail="Entry-scoped tokens cannot move files between entries")
+            target_entry = entry
+            target_filename = target
+
+        # Move file on disk
         old_path = Path(attachment.storage_uri)
-        new_storage_path = old_path.parent / new_name
+        target_dir = settings.storage_dir / target_entry.id
+        target_dir.mkdir(parents=True, exist_ok=True)
+        new_storage_path = target_dir / target_filename
         if old_path.exists():
             old_path.rename(new_storage_path)
-        attachment.filename = new_name
+
+        # Update DB record
+        attachment.entry_id = target_entry.id
+        attachment.filename = target_filename
         attachment.storage_uri = str(new_storage_path)
         db.commit()
 
         # Build new API path
         if token.resource_type == "notebook":
-            new_full_path = f"{entry.title}/{new_name}"
+            new_full_path = f"{target_entry.title}/{target_filename}"
         else:
-            new_full_path = new_name
+            new_full_path = target_filename
         return {"path": new_full_path, "status": "renamed"}
     else:
-        # Rename entry
-        entry.title = new_name
+        # Rename entry (move between notebooks is not supported)
+        if "/" in target:
+            raise HTTPException(status_code=400, detail="Entry rename target must be a bare name, not a path")
+        entry.title = target
         db.commit()
 
         if token.resource_type == "notebook":
-            new_full_path = new_name
+            new_full_path = target
         else:
             new_full_path = ""
         return {"path": new_full_path, "status": "renamed"}
