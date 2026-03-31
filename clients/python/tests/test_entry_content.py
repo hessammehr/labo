@@ -65,6 +65,18 @@ class TestWriteBlocks:
         entry = _resource(httpserver) / "My Entry"
         entry.write_blocks(blocks)  # should not raise
 
+    def test_write_blocks_with_expected_version(self, httpserver: HTTPServer):
+        blocks = [{"type": "paragraph", "content": [{"type": "text", "text": "Hi"}]}]
+        httpserver.expect_request(
+            "/api/v1/files/My Entry",
+            method="PUT",
+            query_string="content=blocks",
+            data=json.dumps({"blocks": blocks, "expected_version": 7}),
+        ).respond_with_json({"status": "updated", "version": 8})
+
+        entry = _resource(httpserver) / "My Entry"
+        entry.write_blocks(blocks, expected_version=7)
+
 
 class TestRename:
     def test_rename_entry(self, httpserver: HTTPServer):

@@ -306,6 +306,34 @@ class TestWriteBlocks:
         resp = client.get("/api/v1/files/Experiment 1", params={"content": "blocks"}, headers=_auth(token))
         assert resp.json()["blocks"][0]["content"][0]["text"] == "Replaced"
 
+    def test_write_blocks_with_stale_expected_version_conflicts(self, client):
+        _, _, token = _setup(client)
+
+        # First write bumps version from 1 -> 2
+        resp = client.put(
+            "/api/v1/files/Experiment 1",
+            params={"content": "blocks"},
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({
+                "blocks": [{"type": "paragraph", "content": [{"type": "text", "text": "v2"}], "children": []}],
+            }),
+        )
+        assert resp.status_code == 201
+        assert resp.json()["version"] == 2
+
+        # Stale expected_version=1 with a real change should conflict
+        resp = client.put(
+            "/api/v1/files/Experiment 1",
+            params={"content": "blocks"},
+            headers={**_auth(token), "Content-Type": "application/json"},
+            content=json.dumps({
+                "blocks": [{"type": "paragraph", "content": [{"type": "text", "text": "v3"}], "children": []}],
+                "expected_version": 1,
+            }),
+        )
+        assert resp.status_code == 409
+        assert resp.json()["detail"]["current_version"] == 2
+
     def test_write_markdown_rejected(self, client):
         _, _, token = _setup(client)
         resp = client.put(

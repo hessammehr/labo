@@ -169,16 +169,23 @@ class Resource(PathLike):
         resp.raise_for_status()
         return resp.json()["blocks"]
 
-    def write_blocks(self, blocks: list[dict]) -> None:
+    def write_blocks(self, blocks: list[dict], expected_version: int | None = None) -> None:
         """Write the entry's text content as BlockNote JSON blocks.
 
         Only works when this resource points to an entry (not a file).
+
+        If ``expected_version`` is provided, the server rejects stale writes
+        with HTTP 409.
         """
         import json
 
+        payload: dict[str, object] = {"blocks": blocks}
+        if expected_version is not None:
+            payload["expected_version"] = expected_version
+
         resp = self._get_client().put(
             self._url,
-            content=json.dumps({"blocks": blocks}).encode("utf-8"),
+            content=json.dumps(payload).encode("utf-8"),
             params={"content": "blocks"},
             headers={"Content-Type": "application/json"},
         )

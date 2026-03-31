@@ -269,9 +269,24 @@ async def write_file(
 
         payload = json.loads(await request.body())
         if not isinstance(payload, dict) or "blocks" not in payload:
-            raise HTTPException(status_code=400, detail='Expected {"blocks": [...], "title": "..."}')
+            raise HTTPException(status_code=400, detail='Expected {"blocks": [...], "expected_version": 3}')
+
+        expected_version = payload.get("expected_version")
+        if expected_version is not None and not isinstance(expected_version, int):
+            raise HTTPException(status_code=400, detail="expected_version must be an integer")
 
         changed = entry.content_blocks != payload["blocks"]
+
+        # Optional optimistic concurrency for token-based block writes.
+        if changed and expected_version is not None and expected_version != entry.version:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Entry was modified by someone else",
+                    "current_version": entry.version,
+                },
+            )
+
         if changed:
             entry.content_blocks = payload["blocks"]
             entry.version += 1
