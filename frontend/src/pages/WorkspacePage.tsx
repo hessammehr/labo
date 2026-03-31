@@ -35,6 +35,7 @@ import { RevisionsPanel, type Revision } from "../components/RevisionsPanel";
 import { ApiAccessModal } from "../components/ApiAccessModal";
 import { ShareModal } from "../components/ShareModal";
 import { useIoEvents, ioKey } from "../lib/useIoEvents";
+import { useEntryEvents } from "../lib/useEntryEvents";
 import { api } from "../lib/api";
 import { useSearchSubscribe } from "../lib/searchContext";
 import type { Attachment, Entry, Notebook, SearchResult } from "../lib/types";
@@ -236,48 +237,36 @@ export function WorkspacePage() {
     return allEntries.find((entry) => entry.id === selectedEntryId) ?? allEntries[0] ?? null;
   }, [allEntries, selectedEntryId]);
 
-  const selectedEntryFreshQuery = useQuery({
-    queryKey: ["entry", "fresh", selectedEntry?.id],
-    queryFn: async () => {
-      const { data } = await api.get<Entry>(`/entries/${selectedEntry!.id}`);
-      return data;
-    },
-    enabled: Boolean(selectedEntry?.id) && !previewRevision,
-    refetchInterval: 3000,
-    refetchIntervalInBackground: true,
-  });
+  useEntryEvents((event) => {
+    setEntryVersionById((prev) => {
+      const known = prev[event.entry_id] ?? 0;
+      if (event.version <= known) return prev;
+      return { ...prev, [event.entry_id]: event.version };
+    });
 
-  useEffect(() => {
-    if (!selectedEntry || !selectedEntryFreshQuery.data) return;
+    if (!selectedEntry || previewRevision) return;
+    if (event.entry_id !== selectedEntry.id) return;
 
-    const fresh = selectedEntryFreshQuery.data;
+    if (event.version <= selectedEntry.version) return;
 
-    if (fresh.version <= selectedEntry.version) {
-      if (!isEditorDirty && remoteAheadVersion && selectedEntry.version >= remoteAheadVersion) {
-        setRemoteAheadVersion(null);
+    if (isEditorDirty) {
+      // Avoid transient "paused" flicker from our own in-flight save events.
+      if (!saveEntry.isPending) {
+        setRemoteAheadVersion(event.version);
       }
       return;
     }
 
-    if (isEditorDirty) {
-      setRemoteAheadVersion(fresh.version);
-      return;
-    }
-
-    setEntryVersionById((prev) => ({ ...prev, [fresh.id]: fresh.version }));
-    queryClient.setQueryData<Entry[]>(
-      ["entries", "notebook", fresh.notebook_id],
-      (old) => old?.map((e) => (e.id === fresh.id ? fresh : e)) ?? old,
-    );
-    setRemoteAheadVersion(null);
-    setEditorGeneration((n) => n + 1);
-  }, [
-    isEditorDirty,
-    queryClient,
-    remoteAheadVersion,
-    selectedEntry,
-    selectedEntryFreshQuery.data,
-  ]);
+    void (async () => {
+      const { data: fresh } = await api.get<Entry>(`/entries/${selectedEntry.id}`);
+      queryClient.setQueryData<Entry[]>(
+        ["entries", "notebook", fresh.notebook_id],
+        (old) => old?.map((e) => (e.id === fresh.id ? fresh : e)) ?? old,
+      );
+      setRemoteAheadVersion(null);
+      setEditorGeneration((n) => n + 1);
+    })();
+  });
 
   const selectedAttachment = useMemo(() => {
     if (!selectedAttachmentId) return null;
@@ -1150,10 +1139,10 @@ export function WorkspacePage() {
               initialTitle={selectedEntry.title}
               initialContent={selectedEntry.content_blocks}
               isSaving={saveEntry.isPending}
-              suspendAutoSave={Boolean(remoteAheadVersion && isEditorDirty)}
+              suspendAutoSave={Boolean(remoteAheadVersion && isEditorDirty && !saveEntry.isPending)}
               onDirtyChange={setIsEditorDirty}
               banner={
-                remoteAheadVersion && isEditorDirty ? (
+                remoteAheadVersion && isEditorDirty && !saveEntry.isPending ? (
                   <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-4 py-1.5 text-xs text-amber-800 dark:text-amber-200">
                     <span>
                       Newer version detected (v{remoteAheadVersion}). Auto-save is paused until you reload.

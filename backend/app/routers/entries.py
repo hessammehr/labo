@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from app.core.access import require_access
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.models import Attachment, Entry, EntryRevision, Notebook, User
+from app.core.events import EntryVersionEvent, entry_event_hub
+from app.models import Attachment, Entry, EntryRevision, Notebook, Permission, User
 from app.schemas import EntryCreate, EntryImport, EntryOut, EntryRevisionOut, EntryUpdate
 from app.services.export import EXPORT_FORMATS, AttachmentInfo, collect_attachment_ids, entry_to_markdown, export_document
 from app.services.markdown import blocks_to_markdown, markdown_to_blocks
@@ -22,6 +23,28 @@ class MarkdownParseRequest(BaseModel):
 class MarkdownParseResponse(BaseModel):
     blocks: list[dict]
     title: str | None
+
+
+def _notify_entry_version(db: Session, entry: Entry) -> None:
+    recipient_ids = {
+        row[0]
+        for row in (
+            db.query(Permission.subject_id)
+            .filter(
+                Permission.resource_type == "notebook",
+                Permission.resource_id == entry.notebook_id,
+            )
+            .all()
+        )
+    }
+    event = EntryVersionEvent(
+        notebook_id=entry.notebook_id,
+        entry_id=entry.id,
+        version=entry.version,
+        updated_at=entry.updated_at,
+    )
+    for user_id in recipient_ids:
+        entry_event_hub.publish(user_id, event)
 
 
 @router.post("/", response_model=EntryOut, status_code=status.HTTP_201_CREATED)
@@ -42,6 +65,7 @@ def create_entry(
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    _notify_entry_version(db, entry)
     return entry
 
 
@@ -67,6 +91,7 @@ def import_markdown_entry(
     db.add(entry)
     db.commit()
     db.refresh(entry)
+    _notify_entry_version(db, entry)
     return entry
 
 
@@ -261,6 +286,8 @@ def update_entry(
 
     db.commit()
     db.refresh(entry)
+    if changed_fields:
+        _notify_entry_version(db, entry)
     return entry
 
 
@@ -318,6 +345,7 @@ def restore_revision(
     entry.version += 1
     db.commit()
     db.refresh(entry)
+    _notify_entry_version(db, entry)
     return entry
 
 

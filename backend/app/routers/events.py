@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 
 from app.core.config import settings
 from app.core.database import SessionLocal
-from app.core.events import event_hub
+from app.core.events import entry_event_hub, io_event_hub
 from app.core.security import hash_api_key
 from app.models import ApiKey, Session, User
 
@@ -65,7 +65,7 @@ async def io_events(
     # Authenticate eagerly and release the DB connection before streaming.
     user_id = _authenticate_eagerly(session_cookie, x_api_key)
 
-    queue = event_hub.subscribe(user_id)
+    queue = io_event_hub.subscribe(user_id)
 
     async def stream():
         try:
@@ -82,7 +82,43 @@ async def io_events(
                     # Send keepalive comment
                     yield ": keepalive\n\n"
         finally:
-            event_hub.unsubscribe(user_id, queue)
+            io_event_hub.unsubscribe(user_id, queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/entries")
+async def entry_events(
+    request: Request,
+    session_cookie: str | None = Cookie(None, alias=settings.session_cookie_name),
+    x_api_key: str | None = Header(None),
+):
+    """SSE stream of entry version update events for the current user."""
+    user_id = _authenticate_eagerly(session_cookie, x_api_key)
+
+    queue = entry_event_hub.subscribe(user_id)
+
+    async def stream():
+        try:
+            yield ": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield event.to_sse()
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            entry_event_hub.unsubscribe(user_id, queue)
 
     return StreamingResponse(
         stream(),

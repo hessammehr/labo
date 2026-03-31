@@ -19,9 +19,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.events import IoEvent, event_hub
 from app.core.security import hash_api_key
-from app.models import Attachment, Entry, Notebook, ScopedToken
+from app.core.events import EntryVersionEvent, IoEvent, entry_event_hub, io_event_hub
+from app.models import Attachment, Entry, Notebook, Permission, ScopedToken
 from app.services.markdown import blocks_to_markdown
 
 router = APIRouter(prefix="/v1/files", tags=["files"])
@@ -105,6 +105,28 @@ def _resolve_path(
 
     else:
         raise HTTPException(status_code=400, detail="Unsupported resource type")
+
+
+def _notify_entry_version(db: Session, entry: Entry) -> None:
+    recipient_ids = {
+        row[0]
+        for row in (
+            db.query(Permission.subject_id)
+            .filter(
+                Permission.resource_type == "notebook",
+                Permission.resource_id == entry.notebook_id,
+            )
+            .all()
+        )
+    }
+    event = EntryVersionEvent(
+        notebook_id=entry.notebook_id,
+        entry_id=entry.id,
+        version=entry.version,
+        updated_at=entry.updated_at,
+    )
+    for user_id in recipient_ids:
+        entry_event_hub.publish(user_id, event)
 
 
 @router.head("/{path:path}")
@@ -192,7 +214,7 @@ def read_file(
                 now = time.monotonic()
                 if now - last_event_at >= event_interval:
                     last_event_at = now
-                    event_hub.publish(
+                    io_event_hub.publish(
                         token.created_by,
                         IoEvent(
                             resource_type=token.resource_type,
@@ -249,10 +271,14 @@ async def write_file(
         if not isinstance(payload, dict) or "blocks" not in payload:
             raise HTTPException(status_code=400, detail='Expected {"blocks": [...], "title": "..."}')
 
-        entry.content_blocks = payload["blocks"]
-        db.commit()
-        db.refresh(entry)
-        return {"status": "updated"}
+        changed = entry.content_blocks != payload["blocks"]
+        if changed:
+            entry.content_blocks = payload["blocks"]
+            entry.version += 1
+            db.commit()
+            db.refresh(entry)
+            _notify_entry_version(db, entry)
+        return {"status": "updated", "version": entry.version}
 
     # Parse the path to find entry + filename
     parts = path.strip("/").split("/") if path.strip("/") else []
@@ -311,7 +337,7 @@ async def write_file(
             now = time.monotonic()
             if now - last_event_at >= event_interval:
                 last_event_at = now
-                event_hub.publish(
+                io_event_hub.publish(
                     token.created_by,
                     IoEvent(
                         resource_type=token.resource_type,
@@ -378,7 +404,7 @@ async def write_file(
         }
 
     # Emit write event
-    event_hub.publish(
+    io_event_hub.publish(
         token.created_by,
         IoEvent(
             resource_type=token.resource_type,
