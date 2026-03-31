@@ -7,6 +7,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import { isAxiosError } from "axios";
 import {
   ChevronDown,
   ChevronRight,
@@ -103,6 +104,9 @@ export function WorkspacePage() {
   const [selectedEntryId, setSelectedEntryId] = useState<string | null>(null);
   const [editorGeneration, setEditorGeneration] = useState(0);
   const [previewRevision, setPreviewRevision] = useState<Revision | null>(null);
+  const [entryVersionById, setEntryVersionById] = useState<Record<string, number>>({});
+  const [isEditorDirty, setIsEditorDirty] = useState(false);
+  const [remoteAheadVersion, setRemoteAheadVersion] = useState<number | null>(null);
   const [expandedNotebookIds, setExpandedNotebookIds] = useState<Record<string, boolean>>({});
   const [creatingNotebookName, setCreatingNotebookName] = useState("");
   const [creatingEntryNotebookId, setCreatingEntryNotebookId] = useState<string | null>(null);
@@ -175,6 +179,8 @@ export function WorkspacePage() {
     setSelectedEntryId(entryId);
     setSelectedAttachmentId(null);
     setPreviewRevision(null);
+    setIsEditorDirty(false);
+    setRemoteAheadVersion(null);
     // When the sidebar is an overlay, close it after selecting an entry
     if (!isWide) setLeftOpen(false);
   };
@@ -229,6 +235,49 @@ export function WorkspacePage() {
   const selectedEntry = useMemo(() => {
     return allEntries.find((entry) => entry.id === selectedEntryId) ?? allEntries[0] ?? null;
   }, [allEntries, selectedEntryId]);
+
+  const selectedEntryFreshQuery = useQuery({
+    queryKey: ["entry", "fresh", selectedEntry?.id],
+    queryFn: async () => {
+      const { data } = await api.get<Entry>(`/entries/${selectedEntry!.id}`);
+      return data;
+    },
+    enabled: Boolean(selectedEntry?.id) && !previewRevision,
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
+  });
+
+  useEffect(() => {
+    if (!selectedEntry || !selectedEntryFreshQuery.data) return;
+
+    const fresh = selectedEntryFreshQuery.data;
+
+    if (fresh.version <= selectedEntry.version) {
+      if (!isEditorDirty && remoteAheadVersion && selectedEntry.version >= remoteAheadVersion) {
+        setRemoteAheadVersion(null);
+      }
+      return;
+    }
+
+    if (isEditorDirty) {
+      setRemoteAheadVersion(fresh.version);
+      return;
+    }
+
+    setEntryVersionById((prev) => ({ ...prev, [fresh.id]: fresh.version }));
+    queryClient.setQueryData<Entry[]>(
+      ["entries", "notebook", fresh.notebook_id],
+      (old) => old?.map((e) => (e.id === fresh.id ? fresh : e)) ?? old,
+    );
+    setRemoteAheadVersion(null);
+    setEditorGeneration((n) => n + 1);
+  }, [
+    isEditorDirty,
+    queryClient,
+    remoteAheadVersion,
+    selectedEntry,
+    selectedEntryFreshQuery.data,
+  ]);
 
   const selectedAttachment = useMemo(() => {
     if (!selectedAttachmentId) return null;
@@ -446,16 +495,22 @@ export function WorkspacePage() {
       title: string;
       content_blocks: Array<Record<string, unknown>>;
       checkpoint: boolean;
+      expected_version?: number;
     }) => {
-      await api.put(`/entries/${payload.id}`, {
+      const { data } = await api.put<Entry>(`/entries/${payload.id}`, {
         title: payload.title,
         content_blocks: payload.content_blocks,
         checkpoint: payload.checkpoint,
+        expected_version: payload.expected_version,
         change_summary: payload.checkpoint ? "Saved in workspace" : "",
       });
-      return payload.checkpoint;
+      return { entry: data, wasCheckpoint: payload.checkpoint };
     },
-    onSuccess: async (wasCheckpoint) => {
+    onSuccess: async ({ entry, wasCheckpoint }) => {
+      setEntryVersionById((prev) => ({ ...prev, [entry.id]: entry.version }));
+      if (selectedEntryId === entry.id) {
+        setRemoteAheadVersion(null);
+      }
       // Always refresh entry data so the revisions panel sees updated diffs.
       await queryClient.invalidateQueries({ queryKey: ["entries"] });
       if (wasCheckpoint) {
@@ -1095,13 +1150,66 @@ export function WorkspacePage() {
               initialTitle={selectedEntry.title}
               initialContent={selectedEntry.content_blocks}
               isSaving={saveEntry.isPending}
+              suspendAutoSave={Boolean(remoteAheadVersion && isEditorDirty)}
+              onDirtyChange={setIsEditorDirty}
+              banner={
+                remoteAheadVersion && isEditorDirty ? (
+                  <div className="flex items-center justify-between bg-amber-50 dark:bg-amber-900/30 border-b border-amber-200 dark:border-amber-800 px-4 py-1.5 text-xs text-amber-800 dark:text-amber-200">
+                    <span>
+                      Newer version detected (v{remoteAheadVersion}). Auto-save is paused until you reload.
+                    </span>
+                    <button
+                      className="font-medium underline hover:no-underline"
+                      onClick={async () => {
+                        await queryClient.refetchQueries({ queryKey: ["entries"] });
+                        setRemoteAheadVersion(null);
+                        setEditorGeneration((n) => n + 1);
+                      }}
+                    >
+                      Reload latest
+                    </button>
+                  </div>
+                ) : undefined
+              }
               onSave={async (payload) => {
-                await saveEntry.mutateAsync({
-                  id: selectedEntry.id,
-                  title: payload.title,
-                  content_blocks: payload.content_blocks,
-                  checkpoint: payload.checkpoint,
-                });
+                const doSave = async (expectedVersion?: number) => {
+                  await saveEntry.mutateAsync({
+                    id: selectedEntry.id,
+                    title: payload.title,
+                    content_blocks: payload.content_blocks,
+                    checkpoint: payload.checkpoint,
+                    expected_version: expectedVersion,
+                  });
+                };
+
+                const expectedVersion = Math.max(
+                  entryVersionById[selectedEntry.id] ?? 0,
+                  selectedEntry.version,
+                );
+
+                try {
+                  await doSave(expectedVersion);
+                } catch (error) {
+                  if (isAxiosError(error) && error.response?.status === 409) {
+                    const currentVersion = error.response.data?.detail?.current_version;
+                    if (typeof currentVersion === "number") {
+                      setRemoteAheadVersion(currentVersion);
+                    }
+
+                    if (payload.checkpoint) {
+                      const reload = window.confirm(
+                        "This entry changed on another session. Reload the latest version now?",
+                      );
+                      if (reload) {
+                        await queryClient.refetchQueries({ queryKey: ["entries"] });
+                        setRemoteAheadVersion(null);
+                        setEditorGeneration((n) => n + 1);
+                      }
+                    }
+                    return;
+                  }
+                  throw error;
+                }
               }}
               uploadFile={async (file: File) => {
                 const form = new FormData();

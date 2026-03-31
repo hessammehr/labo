@@ -97,8 +97,10 @@ type EntryEditorFormProps = {
   initialContent?: Array<Record<string, unknown>>;
   isSaving?: boolean;
   readOnly?: boolean;
+  suspendAutoSave?: boolean;
   banner?: React.ReactNode;
   onSave: (payload: SavePayload) => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
   uploadFile?: (file: File) => Promise<string>;
   onAttachmentDrop?: (data: AttachmentDropData) => Promise<string>;
   /** Called when user right-clicks a structure and picks "Save to notebook" */
@@ -139,8 +141,10 @@ export function EntryEditorForm({
   initialContent,
   isSaving = false,
   readOnly = false,
+  suspendAutoSave = false,
   banner,
   onSave,
+  onDirtyChange,
   uploadFile,
   onAttachmentDrop,
   onExportSvgAttachment,
@@ -252,30 +256,74 @@ export function EntryEditorForm({
   const savingRef = useRef(false);
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Stable ref avoids save → scheduleAutoSave → effect cascade on parent re-renders.
   const onSaveRef = useRef(onSave);
   onSaveRef.current = onSave;
+
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+
+  const dirtyRef = useRef(false);
+  const savedSnapshotRef = useRef<{ title: string; content: string }>({
+    title: initialTitle,
+    content: "",
+  });
+
+  const setDirty = useCallback((dirty: boolean) => {
+    if (dirtyRef.current === dirty) return;
+    dirtyRef.current = dirty;
+    onDirtyChangeRef.current?.(dirty);
+  }, []);
+
+  const recomputeDirty = useCallback(() => {
+    const currentContent = JSON.stringify(
+      editor.document as unknown as Array<Record<string, unknown>>,
+    );
+    const saved = savedSnapshotRef.current;
+    setDirty(titleRef.current !== saved.title || currentContent !== saved.content);
+  }, [editor, setDirty]);
+
+  useEffect(() => {
+    savedSnapshotRef.current = {
+      title: titleRef.current,
+      content: JSON.stringify(editor.document as unknown as Array<Record<string, unknown>>),
+    };
+    setDirty(false);
+  }, [editor, setDirty]);
 
   const save = useCallback(
     (checkpoint: boolean) => {
       if (readOnly || savingRef.current) return;
+      if (!checkpoint && (suspendAutoSave || !dirtyRef.current)) return;
+
       savingRef.current = true;
-      onSaveRef.current({
+      const snapshot = {
         title: titleRef.current,
         content_blocks: editor.document as unknown as Array<Record<string, unknown>>,
         checkpoint,
-      }).finally(() => {
-        savingRef.current = false;
-      });
+      };
+
+      onSaveRef.current(snapshot)
+        .then(() => {
+          savedSnapshotRef.current = {
+            title: titleRef.current,
+            content: JSON.stringify(
+              editor.document as unknown as Array<Record<string, unknown>>,
+            ),
+          };
+          setDirty(false);
+        })
+        .finally(() => {
+          savingRef.current = false;
+        });
     },
-    [editor, readOnly],
+    [editor, readOnly, setDirty, suspendAutoSave],
   );
 
   const scheduleAutoSave = useCallback(() => {
-    if (readOnly) return;
+    if (readOnly || suspendAutoSave) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     autoSaveTimer.current = setTimeout(() => save(false), AUTO_SAVE_DELAY);
-  }, [save, readOnly]);
+  }, [save, readOnly, suspendAutoSave]);
 
   // Keep a stable ref to the latest save so the unmount cleanup can call it.
   const saveRef = useRef(save);
@@ -296,14 +344,18 @@ export function EntryEditorForm({
 
   useEffect(() => {
     if (readOnly) return;
-    const unsubscribe = editor.onChange(() => scheduleAutoSave());
+    const unsubscribe = editor.onChange(() => {
+      recomputeDirty();
+      scheduleAutoSave();
+    });
     return unsubscribe;
-  }, [editor, scheduleAutoSave, readOnly]);
+  }, [editor, recomputeDirty, scheduleAutoSave, readOnly]);
 
   // --- auto-save on title change -------------------------------------
 
   const isFirstTitle = useRef(true);
   useEffect(() => {
+    recomputeDirty();
     if (readOnly) return;
     // Skip the initial render / reset from prop sync
     if (isFirstTitle.current) {
@@ -311,7 +363,7 @@ export function EntryEditorForm({
       return;
     }
     scheduleAutoSave();
-  }, [title, scheduleAutoSave, readOnly]);
+  }, [title, recomputeDirty, scheduleAutoSave, readOnly]);
 
   // --- Cmd+S / Ctrl+S = checkpoint save ------------------------------
 

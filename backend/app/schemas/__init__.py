@@ -71,6 +71,7 @@ class EntryUpdate(BaseModel):
     title: str | None = None
     content_blocks: list[dict] | None = None
     tags: list[str] | None = None
+    expected_version: int | None = None
     change_summary: str = ""
     checkpoint: bool = False
 
@@ -82,6 +83,7 @@ class EntryOut(BaseModel):
     title: str
     content_blocks: list[dict]
     tags: list[str]
+    version: int
     created_at: datetime
     updated_at: datetime
 

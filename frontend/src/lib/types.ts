@@ -15,6 +15,7 @@ export type Entry = {
   title: string;
   content_blocks: Array<Record<string, unknown>>;
   tags: string[];
+  version: number;
   created_at: string;
   updated_at: string;
 };

@@ -57,6 +57,7 @@ class Entry(Base):
     title = Column(String(255), nullable=False)
     content_blocks = Column(JSON, default=list)
     tags = Column(JSON, default=list)
+    version = Column(Integer, nullable=False, default=1)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 

@@ -216,8 +216,35 @@ def update_entry(
     if body.notebook_id and body.notebook_id != entry.notebook_id:
         require_access(db, user, "notebook", body.notebook_id, "write")
 
-    # Only create a revision on explicit checkpoint saves.
-    if body.checkpoint and body.content_blocks is not None:
+    incoming_fields = body.model_dump(
+        exclude_unset=True,
+        exclude={"change_summary", "checkpoint", "expected_version"},
+    )
+
+    # Only treat fields as changed if the value actually differs.
+    changed_fields = {
+        field: value
+        for field, value in incoming_fields.items()
+        if getattr(entry, field) != value
+    }
+
+    # Optimistic concurrency control: reject stale updates only when the
+    # request would modify data. Stale no-op saves are accepted.
+    if (
+        changed_fields
+        and body.expected_version is not None
+        and body.expected_version != entry.version
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Entry was modified by someone else",
+                "current_version": entry.version,
+            },
+        )
+
+    # Only create a revision on explicit checkpoint saves that change content.
+    if body.checkpoint and "content_blocks" in changed_fields:
         revision = EntryRevision(
             entry_id=entry.id,
             author_id=user.id,
@@ -226,10 +253,12 @@ def update_entry(
         )
         db.add(revision)
 
-    for field, value in body.model_dump(
-        exclude_unset=True, exclude={"change_summary", "checkpoint"}
-    ).items():
+    for field, value in changed_fields.items():
         setattr(entry, field, value)
+
+    if changed_fields:
+        entry.version += 1
+
     db.commit()
     db.refresh(entry)
     return entry
@@ -286,6 +315,7 @@ def restore_revision(
     db.add(checkpoint)
 
     entry.content_blocks = revision.content_blocks
+    entry.version += 1
     db.commit()
     db.refresh(entry)
     return entry

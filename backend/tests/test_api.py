@@ -184,6 +184,7 @@ class TestEntries:
         assert resp.status_code == 201
         entry = resp.json()
         entry_id = entry["id"]
+        assert entry["version"] == 1
 
         # Auto-save (no checkpoint) → no revision
         resp = client.put(
@@ -191,6 +192,7 @@ class TestEntries:
             json={"content_blocks": [{"type": "text", "text": "hello v2"}]},
         )
         assert resp.status_code == 200
+        assert resp.json()["version"] == 2
 
         resp = client.get(f"/api/entries/{entry_id}/revisions")
         assert len(resp.json()) == 0
@@ -201,6 +203,7 @@ class TestEntries:
             json={"title": "Exp 1 (v2)", "checkpoint": True},
         )
         assert resp.json()["title"] == "Exp 1 (v2)"
+        assert resp.json()["version"] == 3
 
         resp = client.get(f"/api/entries/{entry_id}/revisions")
         assert len(resp.json()) == 0
@@ -215,6 +218,7 @@ class TestEntries:
             },
         )
         assert resp.status_code == 200
+        assert resp.json()["version"] == 4
 
         resp = client.get(f"/api/entries/{entry_id}/revisions")
         revisions = resp.json()
@@ -222,6 +226,71 @@ class TestEntries:
         assert revisions[0]["change_summary"] == "manual save"
         # Revision stores the state *before* the checkpoint
         assert revisions[0]["content_blocks"] == [{"type": "text", "text": "hello v2"}]
+
+    def test_rejects_stale_entry_update(self, client):
+        _register(client)
+        _login(client)
+
+        nb = client.post("/api/notebooks/", json={"title": "NB"}).json()
+        entry = client.post(
+            "/api/entries/",
+            json={"notebook_id": nb["id"], "title": "E", "content_blocks": [{"type": "text", "text": "v1"}]},
+        ).json()
+        entry_id = entry["id"]
+
+        # User A snapshot version
+        stale_version = entry["version"]
+
+        # User B updates first
+        resp = client.put(
+            f"/api/entries/{entry_id}",
+            json={"content_blocks": [{"type": "text", "text": "v2"}]},
+        )
+        assert resp.status_code == 200
+
+        # User A attempts save with stale version
+        resp = client.put(
+            f"/api/entries/{entry_id}",
+            json={
+                "content_blocks": [{"type": "text", "text": "v3"}],
+                "expected_version": stale_version,
+            },
+        )
+        assert resp.status_code == 409
+        detail = resp.json()["detail"]
+        assert detail["message"] == "Entry was modified by someone else"
+        assert "current_version" in detail
+
+    def test_stale_noop_update_is_accepted(self, client):
+        _register(client)
+        _login(client)
+
+        nb = client.post("/api/notebooks/", json={"title": "NB"}).json()
+        entry = client.post(
+            "/api/entries/",
+            json={"notebook_id": nb["id"], "title": "E", "content_blocks": [{"type": "text", "text": "v1"}]},
+        ).json()
+        entry_id = entry["id"]
+        stale_version = entry["version"]
+
+        # Another session updates first
+        resp = client.put(
+            f"/api/entries/{entry_id}",
+            json={"content_blocks": [{"type": "text", "text": "v2"}]},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["version"] == 2
+
+        # Stale expected_version, but request is a no-op against current data.
+        resp = client.put(
+            f"/api/entries/{entry_id}",
+            json={
+                "content_blocks": [{"type": "text", "text": "v2"}],
+                "expected_version": stale_version,
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["version"] == 2
 
     def test_restore_revision(self, client):
         _register(client)
@@ -249,6 +318,7 @@ class TestEntries:
         resp = client.post(f"/api/entries/{entry_id}/revisions/{rev_id}/restore")
         assert resp.status_code == 200
         assert resp.json()["content_blocks"] == [{"type": "text", "text": "v1"}]
+        assert resp.json()["version"] == 3
 
         # Should have created an undo checkpoint
         revisions = client.get(f"/api/entries/{entry_id}/revisions").json()
