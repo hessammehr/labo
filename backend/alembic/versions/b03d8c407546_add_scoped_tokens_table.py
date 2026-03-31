@@ -18,6 +18,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "scoped_tokens" in inspector.get_table_names():
+        return
+
     op.create_table(
         "scoped_tokens",
         sa.Column("id", sa.String(32), primary_key=True),
@@ -42,4 +47,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table("scoped_tokens")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if "scoped_tokens" in inspector.get_table_names():
+        op.drop_table("scoped_tokens")
