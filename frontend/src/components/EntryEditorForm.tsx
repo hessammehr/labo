@@ -177,7 +177,7 @@ export function EntryEditorForm({
   const editor = useCreateBlockNote(
     {
       schema,
-      ...(initialContentRef.current ? { initialContent: initialContentRef.current as any } : {}),
+      ...(initialContentRef.current ? { initialContent: initialContentRef.current } : {}),
       uploadFile: uploadFileRef.current
         ? async (file: File) => {
             return uploadFileRef.current!(file);
@@ -476,7 +476,7 @@ export function EntryEditorForm({
                   onItemClick: () => {
                     const current = editor.getTextCursorPosition().block;
                     editor.insertBlocks(
-                      [{ type: "chemStructure" as any }],
+                      [{ type: "chemStructure" as never }],
                       current,
                       "after",
                     );

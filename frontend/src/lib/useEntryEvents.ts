@@ -10,7 +10,10 @@ export type EntryVersionEvent = {
 
 export function useEntryEvents(onEvent: (event: EntryVersionEvent) => void) {
   const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  }, [onEvent]);
 
   useEffect(() => {
     const es = new EventSource("/api/events/entries");

@@ -29,9 +29,15 @@ import {
   RiAttachment2,
 } from "react-icons/ri";
 
+type ChemBlockLike = {
+  id: string;
+  props: Record<string, unknown>;
+};
+
 /** Build an SVG filename from the block's name (set via Rename). */
-function chemFilename(block: any): string {
-  const name = (block.props as any).name as string;
+function chemFilename(block: ChemBlockLike): string {
+  const raw = block.props.name;
+  const name = typeof raw === "string" ? raw : "";
   const base = name || `structure-${Date.now()}`;
   return base.endsWith(".svg") ? base : `${base}.svg`;
 }
@@ -78,7 +84,7 @@ export const ChemReplaceButton = () => {
   const onClick = useCallback(() => {
     if (!block) return;
     editor.updateBlock(block.id, {
-      props: { ket: "", smiles: "", svgPreview: "", url: "" } as any,
+      props: { ket: "", smiles: "", svgPreview: "", url: "" } as never,
     });
     editor.focus();
   }, [block, editor]);
@@ -106,7 +112,8 @@ export const ChemDownloadButton = () => {
 
   const onClick = useCallback(() => {
     if (!block) return;
-    const svg = (block.props as any).svgPreview as string;
+    const svgProp = block.props.svgPreview;
+    const svg = typeof svgProp === "string" ? svgProp : "";
     if (!svg) return;
     const filename = chemFilename(block);
     const blob = new Blob([svg], { type: "image/svg+xml" });
@@ -118,7 +125,7 @@ export const ChemDownloadButton = () => {
     URL.revokeObjectURL(url);
   }, [block]);
 
-  if (!block || !(block.props as any).svgPreview) return null;
+  if (!block || typeof block.props.svgPreview !== "string" || !block.props.svgPreview) return null;
 
   return (
     <Components.FormattingToolbar.Button
@@ -141,7 +148,8 @@ export const ChemAttachmentButton = () => {
 
   const onClick = useCallback(() => {
     if (!block) return;
-    const svg = (block.props as any).svgPreview as string;
+    const svgProp = block.props.svgPreview;
+    const svg = typeof svgProp === "string" ? svgProp : "";
     if (!svg) return;
     const filename = chemFilename(block);
     window.dispatchEvent(
@@ -151,7 +159,7 @@ export const ChemAttachmentButton = () => {
     );
   }, [block]);
 
-  if (!block || !(block.props as any).svgPreview) return null;
+  if (!block || typeof block.props.svgPreview !== "string" || !block.props.svgPreview) return null;
 
   return (
     <Components.FormattingToolbar.Button

@@ -26,7 +26,7 @@ export function KetcherModal({ open, initialKet, onSave, onClose }: Props) {
   const ketcherRef = useRef<Ketcher | null>(null);
 
   // Load StandaloneStructServiceProvider lazily on first open
-  const [structServiceProvider, setStructServiceProvider] = useState<any>(null);
+  const [structServiceProvider, setStructServiceProvider] = useState<unknown>(null);
   useEffect(() => {
     if (!open || structServiceProvider) return;
     import("ketcher-standalone").then((m) => {
@@ -143,7 +143,7 @@ export function KetcherModal({ open, initialKet, onSave, onClose }: Props) {
             >
               <KetcherEditor
                 staticResourcesUrl={process.env.PUBLIC_URL ?? "/"}
-                structServiceProvider={structServiceProvider}
+                structServiceProvider={structServiceProvider as never}
                 errorHandler={(message: string) =>
                   console.error("Ketcher:", message)
                 }

@@ -50,7 +50,7 @@ export function RevisionsPanel({
     },
   });
 
-  const revisions = revisionsQuery.data ?? [];
+  const revisions = useMemo(() => revisionsQuery.data ?? [], [revisionsQuery.data]);
 
   // Revisions are ordered newest-first.
   // revision[i].content_blocks = state *before* that update.

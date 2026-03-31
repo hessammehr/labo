@@ -44,8 +44,11 @@ export function AppShell() {
   useEffect(() => {
     if (isWide !== prevIsWide.current) {
       prevIsWide.current = isWide;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLeftOpen(isWide);
-      if (!isWide) setRightOpen(false);
+      if (!isWide) {
+        setRightOpen(false);
+      }
     }
   }, [isWide]);
 

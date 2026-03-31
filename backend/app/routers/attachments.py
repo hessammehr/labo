@@ -1,4 +1,4 @@
-import mimetypes
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
@@ -9,11 +9,11 @@ from app.core.access import require_access
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.mime import guess_mime
 from app.models import Attachment, Entry, User
 from app.schemas import AttachmentOut
 
 router = APIRouter(prefix="/attachments", tags=["attachments"])
-
 
 @router.post("/", response_model=AttachmentOut, status_code=status.HTTP_201_CREATED)
 def upload_attachment(
@@ -35,9 +35,7 @@ def upload_attachment(
     filename = file.filename or "unnamed"
     mime = file.content_type or "application/octet-stream"
     if mime == "application/octet-stream":
-        guessed, _ = mimetypes.guess_type(filename)
-        if guessed:
-            mime = guessed
+        mime = guess_mime(filename)
 
     # Classify type
     if mime.startswith("image/"):
@@ -80,8 +78,6 @@ def download_attachment(
 
     require_access(db, user, "entry", attachment.entry_id, "read")
 
-    from pathlib import Path
-
     path = Path(attachment.storage_uri)
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found on disk")
@@ -116,8 +112,6 @@ def delete_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
 
     require_access(db, user, "entry", attachment.entry_id, "write")
-
-    from pathlib import Path
 
     path = Path(attachment.storage_uri)
     if path.exists():
@@ -156,8 +150,6 @@ def update_attachment(
         new_filename = body.filename.strip()
         if not new_filename:
             raise HTTPException(status_code=400, detail="Filename cannot be empty")
-
-        from pathlib import Path
 
         old_path = Path(attachment.storage_uri)
         if old_path.exists():

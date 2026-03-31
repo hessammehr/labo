@@ -8,7 +8,6 @@ Supports streaming reads and chunked streaming writes.
 """
 
 import json
-import mimetypes
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +20,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import hash_api_key
 from app.core.events import EntryVersionEvent, IoEvent, entry_event_hub, io_event_hub
+from app.core.mime import guess_mime
 from app.models import Attachment, Entry, Notebook, Permission, ScopedToken
 from app.services.markdown import blocks_to_markdown
 
@@ -366,8 +366,7 @@ async def write_file(
     # Determine MIME type
     content_type = request.headers.get("content-type", "")
     if not content_type or content_type == "application/octet-stream":
-        guessed, _ = mimetypes.guess_type(filename)
-        content_type = guessed or "application/octet-stream"
+        content_type = guess_mime(filename)
 
     # Classify attachment type
     if content_type.startswith("image/"):
