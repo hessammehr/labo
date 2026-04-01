@@ -207,9 +207,12 @@ def _render_table(content: dict | list, lines: list[str], prefix: str) -> None:
         cells = row.get("cells", [])
         rendered_cells: list[str] = []
         for cell in cells:
-            # Each cell is a list of inline-content arrays
             parts: list[str] = []
-            if isinstance(cell, list):
+            if isinstance(cell, dict) and cell.get("type") == "tableCell":
+                # Native BlockNote tableCell: {type, content: [...inline], props}
+                parts.append(_render_inline(cell.get("content") or []))
+            elif isinstance(cell, list):
+                # Legacy import format: a list of inline-content arrays
                 for segment in cell:
                     if isinstance(segment, list):
                         parts.append(_render_inline(segment))
