@@ -6,7 +6,7 @@
  *  - the text of the highest-level heading that was added or removed
  */
 
-type ContentBlock = Record<string, unknown>;
+import { blockText, flattenInlineText, type ContentBlock, type InlineNode } from "./blockUtils";
 
 export interface DiffSummary {
   added: number;
@@ -24,42 +24,7 @@ export interface DiffSummary {
 /** Produce a stable string key for a single block (type + flattened text). */
 function blockKey(block: ContentBlock): string {
   const type = (block.type as string) ?? "paragraph";
-  const text = flattenText(block.content);
-  return `${type}::${text}`;
-}
-
-/** Flatten inline content nodes into a plain string.
- *
- * Regular blocks carry an array of inline nodes.
- * Table blocks carry a tableContent object: { type: "tableContent", rows: [...] }.
- * We handle both shapes so the diff code never crashes on tables.
- */
-function flattenText(content: unknown): string {
-  if (!content) return "";
-
-  // Table content: { type: "tableContent", rows: [{ cells: [...] }] }
-  if (typeof content === "object" && !Array.isArray(content)) {
-    const tc = content as Record<string, unknown>;
-    if (tc.type === "tableContent") {
-      const rows = tc.rows as Array<{ cells: Array<{ content: unknown }> }> | undefined;
-      return (
-        rows
-          ?.flatMap((row) => row.cells.map((cell) => flattenText(cell.content)))
-          .join(" ") ?? ""
-      );
-    }
-    return "";
-  }
-
-  // Normal inline-content array
-  return (content as Array<Record<string, unknown>>)
-    .map((node) => {
-      if (typeof node === "string") return node;
-      const t = (node.text as string) ?? "";
-      const nested = node.content;
-      return t || flattenText(nested);
-    })
-    .join("");
+  return `${type}::${blockText(block)}`;
 }
 
 /** Recursively collect block keys from a tree of blocks. */
@@ -83,7 +48,7 @@ function extractHeadings(blocks: ContentBlock[]): HeadingInfo[] {
   for (const block of blocks) {
     if ((block.type as string) === "heading") {
       const props = block.props as Record<string, unknown> | undefined;
-      const text = flattenText(block.content);
+      const text = flattenInlineText(block.content as InlineNode[] ?? []);
       if (text) headings.push({ level: (props?.level as number) ?? 1, text });
     }
     const children = block.children as ContentBlock[] | undefined;

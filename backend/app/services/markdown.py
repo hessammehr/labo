@@ -207,22 +207,13 @@ def _render_table(content: dict | list, lines: list[str], prefix: str) -> None:
         cells = row.get("cells", [])
         rendered_cells: list[str] = []
         for cell in cells:
-            parts: list[str] = []
             if isinstance(cell, dict) and cell.get("type") == "tableCell":
-                # Native BlockNote tableCell: {type, content: [...inline], props}
-                parts.append(_render_inline(cell.get("content") or []))
-            elif isinstance(cell, list):
-                # Legacy import format: a list of inline-content arrays
-                for segment in cell:
-                    if isinstance(segment, list):
-                        parts.append(_render_inline(segment))
-                    elif isinstance(segment, dict):
-                        parts.append(_render_inline([segment]))
-                    else:
-                        parts.append(str(segment))
+                text = _render_inline(cell.get("content") or [])
             else:
-                parts.append(str(cell))
-            rendered_cells.append(" ".join(parts).replace("|", "\\|"))
+                # Shouldn't occur for data written by this app, but handle
+                # gracefully rather than crashing.
+                text = str(cell)
+            rendered_cells.append(text.replace("|", "\\|"))
         rendered_rows.append(rendered_cells)
 
     if not rendered_rows:
@@ -542,7 +533,11 @@ def _parse_inline(text: str) -> list[dict]:
 
 
 def _parse_table(lines: list[str]) -> dict:
-    """Parse a sequence of ``| … |`` lines into a BlockNote table block."""
+    """Parse a sequence of ``| … |`` lines into a BlockNote table block.
+
+    Cells are emitted as native BlockNote ``tableCell`` objects so the output
+    is consistent with tables created interactively in the editor.
+    """
     rows: list[dict] = []
     for line in lines:
         # Skip separator rows (| --- | --- |)
@@ -553,7 +548,17 @@ def _parse_table(lines: list[str]) -> dict:
         cells = []
         for cell in raw_cells:
             cell_text = cell.strip().replace("\\|", "|")
-            cells.append([_parse_inline(cell_text)])
+            cells.append({
+                "type": "tableCell",
+                "content": _parse_inline(cell_text),
+                "props": {
+                    "colspan": 1,
+                    "rowspan": 1,
+                    "backgroundColor": "default",
+                    "textColor": "default",
+                    "textAlignment": "left",
+                },
+            })
         rows.append({"cells": cells})
 
     return _block("table", content={"type": "tableContent", "rows": rows})
