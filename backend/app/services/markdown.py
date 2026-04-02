@@ -209,10 +209,11 @@ def _render_table(content: dict | list, lines: list[str], prefix: str) -> None:
         for cell in cells:
             if isinstance(cell, dict) and cell.get("type") == "tableCell":
                 text = _render_inline(cell.get("content") or [])
+            elif isinstance(cell, list):
+                # BlockNote editor stores cells as plain inline content arrays
+                text = _render_inline(cell)
             else:
-                # Shouldn't occur for data written by this app, but handle
-                # gracefully rather than crashing.
-                text = str(cell)
+                raise ValueError(f"Unexpected table cell type: {type(cell)}")
             rendered_cells.append(text.replace("|", "\\|"))
         rendered_rows.append(rendered_cells)
 
