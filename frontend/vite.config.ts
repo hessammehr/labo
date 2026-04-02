@@ -4,6 +4,14 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // ketcher-react depends on CJS modules (raphael, etc.) that need
+  // explicit handling in Vite's Rollup-based production build.
+  build: {
+    commonjsOptions: {
+      include: [/ketcher-react/, /raphael/, /node_modules/],
+      transformMixedEsModules: true,
+    },
+  },
   server: {
     allowedHosts: true,
     proxy: {
