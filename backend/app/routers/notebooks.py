@@ -191,23 +191,31 @@ async def import_labo_notebook(
         target_notebook_id = notebook_id
 
     elif kind == "notebook":
-        # Create a new notebook to restore into.
-        new_notebook = Notebook(
-            author_id=user.id,
-            title=manifest["title"],
-            description=manifest.get("description", ""),
-        )
-        db.add(new_notebook)
-        db.flush()
-        perm = Permission(
-            subject_id=user.id,
-            resource_type="notebook",
-            resource_id=new_notebook.id,
-            access_level="owner",
-        )
-        db.add(perm)
+        if notebook_id:
+            # Merge into the specified existing notebook.
+            existing = db.query(Notebook).filter(Notebook.id == notebook_id).first()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Notebook not found")
+            require_access(db, user, "notebook", notebook_id, "write")
+            target_notebook_id = notebook_id
+        else:
+            # No target specified — create a new notebook.
+            new_notebook = Notebook(
+                author_id=user.id,
+                title=manifest["title"],
+                description=manifest.get("description", ""),
+            )
+            db.add(new_notebook)
+            db.flush()
+            perm = Permission(
+                subject_id=user.id,
+                resource_type="notebook",
+                resource_id=new_notebook.id,
+                access_level="owner",
+            )
+            db.add(perm)
+            target_notebook_id = new_notebook.id
         entries_data = manifest.get("entries", [])
-        target_notebook_id = new_notebook.id
     else:
         raise HTTPException(status_code=400, detail=f"Unrecognised archive kind: {kind!r}")
 

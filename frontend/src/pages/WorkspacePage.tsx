@@ -118,6 +118,7 @@ export function WorkspacePage() {
   const [dropNotebookId, setDropNotebookId] = useState<string | null>(null);
   const [fileDropNotebookId, setFileDropNotebookId] = useState<string | null>(null);
   const [fileDropEntryId, setFileDropEntryId] = useState<string | null>(null);
+  const [fileDropExplorer, setFileDropExplorer] = useState(false);
   const [draggingAttachment, setDraggingAttachment] = useState<{ attachmentId: string; fromEntryId: string } | null>(null);
   const [attDropEntryId, setAttDropEntryId] = useState<string | null>(null);
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
@@ -704,7 +705,33 @@ export function WorkspacePage() {
         }`}
       >
         {/* --- Explorer tree (top) --- */}
-        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          className={`min-h-0 flex-1 overflow-y-auto${fileDropExplorer ? " ring-2 ring-inset ring-blue-400 dark:ring-blue-500" : ""}`}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            openContextMenu(event, { x: event.clientX, y: event.clientY, kind: "root" });
+          }}
+          onDragOver={(event) => {
+            if (hasExternalFiles(event)) {
+              event.preventDefault();
+              setFileDropExplorer(true);
+            }
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              setFileDropExplorer(false);
+            }
+          }}
+          onDrop={async (event) => {
+            event.preventDefault();
+            setFileDropExplorer(false);
+            const files = Array.from(event.dataTransfer.files);
+            const zipFiles = files.filter((f) => f.name.endsWith(".zip"));
+            for (const file of zipFiles) {
+              await importLaboArchive.mutateAsync({ file }); // no notebookId → create new notebook
+            }
+          }}
+        >
         <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
           <span>Explorer</span>
           <div className="flex items-center gap-1">
@@ -773,14 +800,15 @@ export function WorkspacePage() {
                   className={`group flex items-center gap-1 px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800 ${
                     dropNotebookId === notebook.id || fileDropNotebookId === notebook.id ? "bg-blue-100 dark:bg-blue-900/40" : ""
                   }`}
-                  onContextMenu={(event) =>
+                  onContextMenu={(event) => {
+                    event.stopPropagation();
                     openContextMenu(event, {
                       x: event.clientX,
                       y: event.clientY,
                       kind: "notebook",
                       notebookId: notebook.id,
-                    })
-                  }
+                    });
+                  }}
                   onDragOver={(event) => {
                     if (hasExternalFiles(event)) {
                       event.preventDefault();
@@ -796,6 +824,7 @@ export function WorkspacePage() {
                     if (fileDropNotebookId === notebook.id) setFileDropNotebookId(null);
                   }}
                   onDrop={(event) => {
+                    event.stopPropagation();
                     void onNotebookDrop(event, notebook.id);
                   }}
                 >
@@ -884,15 +913,16 @@ export function WorkspacePage() {
                             ? "bg-green-100 dark:bg-green-900/40"
                             : selectedEntry?.id === entry.id ? "bg-blue-100 dark:bg-blue-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-800"
                         }`}
-                        onContextMenu={(event) =>
+                        onContextMenu={(event) => {
+                          event.stopPropagation();
                           openContextMenu(event, {
                             x: event.clientX,
                             y: event.clientY,
                             kind: "entry",
                             entryId: entry.id,
                             notebookId: notebook.id,
-                          })
-                        }
+                          });
+                        }}
                         onDragStart={(event) => onEntryDragStart(event, entry)}
                         onDragEnd={() => {
                           setDraggingEntry(null);
@@ -914,6 +944,7 @@ export function WorkspacePage() {
                           if (attDropEntryId === entry.id) setAttDropEntryId(null);
                         }}
                         onDrop={(event) => {
+                          event.stopPropagation();
                           if (hasExternalFiles(event)) {
                             void onEntryFileDrop(event, entry.id);
                             return;
@@ -963,7 +994,8 @@ export function WorkspacePage() {
                               title={`${att.filename} (${(att.size / 1024).toFixed(1)} KB)`}
                               onClick={() => setSelectedAttachmentId(att.id)}
                               onDoubleClick={() => void downloadAttachment(att.id, att.filename)}
-                              onContextMenu={(event) =>
+                              onContextMenu={(event) => {
+                                event.stopPropagation();
                                 openContextMenu(event, {
                                   x: event.clientX,
                                   y: event.clientY,
@@ -971,8 +1003,8 @@ export function WorkspacePage() {
                                   attachmentId: att.id,
                                   filename: att.filename,
                                   notebookId: notebook.id,
-                                })
-                              }
+                                });
+                              }}
                               onDragStart={(event) => {
                                 event.dataTransfer.effectAllowed = "move";
                                 event.dataTransfer.setData("text/attachment-id", att.id);
