@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import json
 import logging
 import re
 import shutil
@@ -410,6 +411,153 @@ def export_attachments_zip(
             shutil.copy2(att.storage_path, att_dir / att.filename)
 
         return _zip_directory(work)
+
+
+# ------------------------------------------------------------------
+# Labo Archive (.zip) — native-format export/import
+# ------------------------------------------------------------------
+
+#: Archive format version written into every manifest.
+LABO_ARCHIVE_VERSION = 1
+
+
+def _rewrite_attachment_urls(blocks: list[dict], id_map: dict[str, str]) -> list[dict]:
+    """Replace ``/api/attachments/<old_id>`` with ``/api/attachments/<new_id>``
+    throughout a serialised blocks structure.
+    """
+    if not id_map:
+        return blocks
+    text = json.dumps(blocks)
+    for old_id, new_id in id_map.items():
+        text = text.replace(f"/api/attachments/{old_id}", f"/api/attachments/{new_id}")
+    return json.loads(text)
+
+
+def export_labo_archive_entry(
+    title: str,
+    content_blocks: list[dict],
+    tags: list[str],
+    created_at: str,
+    updated_at: str,
+    attachments: list[dict],
+) -> bytes:
+    """Build a Labo Archive zip for a single entry.
+
+    *attachments* is a list of dicts with keys:
+    ``id``, ``filename``, ``mime_type``, ``type``, ``storage_path``.
+    """
+    manifest = {
+        "version": LABO_ARCHIVE_VERSION,
+        "kind": "entry",
+        "title": title,
+        "tags": tags,
+        "created_at": created_at,
+        "updated_at": updated_at,
+        "content_blocks": content_blocks,
+        "attachments": [
+            {"id": a["id"], "filename": a["filename"],
+             "mime_type": a["mime_type"], "type": a["type"]}
+            for a in attachments
+        ],
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+        for att in attachments:
+            path = Path(att["storage_path"])
+            if path.exists():
+                zf.write(path, f"attachments/{att['id']}/{att['filename']}")
+    return buf.getvalue()
+
+
+def export_labo_archive_notebook(
+    notebook_title: str,
+    notebook_description: str,
+    notebook_created_at: str,
+    notebook_updated_at: str,
+    entries: list[dict],
+) -> bytes:
+    """Build a Labo Archive zip for an entire notebook.
+
+    Each item in *entries* is a dict with keys:
+    ``title``, ``tags``, ``created_at``, ``updated_at``,
+    ``content_blocks``, and ``attachments`` (same shape as above).
+    """
+    manifest = {
+        "version": LABO_ARCHIVE_VERSION,
+        "kind": "notebook",
+        "title": notebook_title,
+        "description": notebook_description,
+        "created_at": notebook_created_at,
+        "updated_at": notebook_updated_at,
+        "entries": [
+            {
+                "title": e["title"],
+                "tags": e["tags"],
+                "created_at": e["created_at"],
+                "updated_at": e["updated_at"],
+                "content_blocks": e["content_blocks"],
+                "attachments": [
+                    {"id": a["id"], "filename": a["filename"],
+                     "mime_type": a["mime_type"], "type": a["type"]}
+                    for a in e.get("attachments", [])
+                ],
+            }
+            for e in entries
+        ],
+    }
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+        for e in entries:
+            for att in e.get("attachments", []):
+                path = Path(att["storage_path"])
+                if path.exists():
+                    zf.write(path, f"attachments/{att['id']}/{att['filename']}")
+    return buf.getvalue()
+
+
+def read_labo_archive(zip_bytes: bytes) -> dict:
+    """Parse a Labo Archive and return its contents.
+
+    Returns a dict::
+
+        {
+            "manifest": { ... },          # parsed manifest.json
+            "files": {                    # attachment file data keyed by old ID
+                "<old_id>": {
+                    "filename": "...",
+                    "data": b"...",
+                },
+                ...
+            },
+        }
+
+    Raises ``ValueError`` for archives that are missing ``manifest.json`` or
+    carry an unrecognised ``version`` number.
+    """
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        if "manifest.json" not in zf.namelist():
+            raise ValueError("Not a Labo Archive: missing manifest.json")
+        manifest = json.loads(zf.read("manifest.json"))
+
+        if manifest.get("version") != LABO_ARCHIVE_VERSION:
+            raise ValueError(
+                f"Unsupported Labo Archive version: {manifest.get('version')!r}"
+            )
+
+        files: dict[str, dict] = {}
+        for name in zf.namelist():
+            # Expected format: attachments/<old_id>/<filename>
+            if not name.startswith("attachments/") or name.endswith("/"):
+                continue
+            parts = name.split("/", 2)  # ["attachments", "<id>", "<filename>"]
+            if len(parts) != 3:
+                continue
+            _, old_id, filename = parts
+            files[old_id] = {"filename": filename, "data": zf.read(name)}
+
+    return {"manifest": manifest, "files": files}
 
 
 def export_document(

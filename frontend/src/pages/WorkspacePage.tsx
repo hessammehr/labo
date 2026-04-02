@@ -137,6 +137,7 @@ export function WorkspacePage() {
   const [previewPaneHeight, setPreviewPaneHeight] = useState(200);
   const [previewCollapsed, setPreviewCollapsed] = useState(false);
   const [revisionsCollapsed, setRevisionsCollapsed] = useState(false);
+  const laboImportInputRef = useRef<HTMLInputElement>(null);
   const dragState = useRef<{
     side: "left" | "right" | "revisions" | "preview";
     startX: number;
@@ -364,6 +365,27 @@ export function WorkspacePage() {
     },
   });
 
+  const importLaboArchive = useMutation({
+    mutationFn: async ({ notebookId, file }: { notebookId?: string; file: File }) => {
+      const form = new FormData();
+      form.append("file", file);
+      const url = notebookId
+        ? `/notebooks/import-labo?notebook_id=${notebookId}`
+        : "/notebooks/import-labo";
+      const { data } = await api.post<{ kind: string; notebook_id: string; entry_ids: string[] }>(
+        url,
+        form,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return data;
+    },
+    onSuccess: async (result) => {
+      await refreshTree();
+      setExpandedNotebookIds((prev) => ({ ...prev, [result.notebook_id]: true }));
+      if (result.entry_ids.length > 0) selectEntry(result.entry_ids[0]);
+    },
+  });
+
   const importMarkdown = useMutation({
     mutationFn: async ({ notebookId, filename, markdown }: { notebookId: string; filename: string; markdown: string }) => {
       const { data } = await api.post<Entry>("/entries/import", {
@@ -447,7 +469,7 @@ export function WorkspacePage() {
     const disposition = resp.headers["content-disposition"] ?? "";
     const match = disposition.match(/filename="(.+)"/);
     const fallbackExt =
-      { md: ".md", html: ".html", pdf: ".pdf", docx: ".docx", latex: ".tex" }[format] ?? "";
+      { md: ".md", html: ".html", pdf: ".pdf", docx: ".docx", latex: ".tex", labo: ".zip" }[format] ?? "";
     const filename = match ? match[1] : title.replace(/ /g, "_") + fallbackExt;
     const url = URL.createObjectURL(resp.data as Blob);
     const a = document.createElement("a");
@@ -464,6 +486,7 @@ export function WorkspacePage() {
       { key: "pdf", label: "PDF (.pdf)" },
       { key: "docx", label: "Word (.docx)" },
       { key: "latex", label: hasAttachments ? "LaTeX (.zip)" : "LaTeX (.tex)" },
+      { key: "labo", label: "Labo Archive (.zip)" },
     ];
     if (hasAttachments) {
       formats.push({ key: "attachments", label: "Attachments (.zip)" });
@@ -565,6 +588,18 @@ export function WorkspacePage() {
       for (const file of mdFiles) {
         const markdown = await file.text();
         await importMarkdown.mutateAsync({ notebookId, filename: file.name, markdown });
+      }
+      return;
+    }
+
+    // External file drop: import Labo Archives
+    // Notebook archives always create a new notebook; entry archives are
+    // imported into the drop target.  The backend decides based on the manifest.
+    const zipFiles = files.filter((f) => f.name.endsWith(".zip"));
+    if (zipFiles.length > 0) {
+      setFileDropNotebookId(null);
+      for (const file of zipFiles) {
+        await importLaboArchive.mutateAsync({ notebookId, file });
       }
       return;
     }
@@ -1297,16 +1332,27 @@ export function WorkspacePage() {
           onClick={(event) => event.stopPropagation()}
         >
           {contextMenu.kind === "root" && (
-            <button
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
-              onClick={() => {
-                setContextMenu(null);
-                setCreatingNotebookName("Untitled Notebook");
-                setRenameState(null);
-              }}
-            >
-              <LabBookPlus size={14} /> New Notebook
-            </button>
+            <>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setContextMenu(null);
+                  setCreatingNotebookName("Untitled Notebook");
+                  setRenameState(null);
+                }}
+              >
+                <LabBookPlus size={14} /> New Notebook
+              </button>
+              <button
+                className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-100 dark:hover:bg-slate-800"
+                onClick={() => {
+                  setContextMenu(null);
+                  laboImportInputRef.current?.click();
+                }}
+              >
+                <FileDown size={14} /> Import Labo Archive…
+              </button>
+            </>
           )}
 
           {contextMenu.kind === "notebook" && (
@@ -1503,6 +1549,20 @@ export function WorkspacePage() {
           )}
         </div>
       )}
+
+      {/* Hidden file input for importing notebook-level Labo Archives */}
+      <input
+        ref={laboImportInputRef}
+        type="file"
+        accept=".zip"
+        className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          e.target.value = ""; // reset so the same file can be re-selected
+          if (!file) return;
+          await importLaboArchive.mutateAsync({ file });
+        }}
+      />
 
       {shareModal && (
         <ShareModal

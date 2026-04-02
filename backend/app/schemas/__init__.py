@@ -173,6 +173,15 @@ class ScopedTokenUpdate(BaseModel):
     label: str | None = None
 
 
+# --- Labo Archive import ---
+
+class LaboImportResult(BaseModel):
+    """Returned after a successful Labo Archive import."""
+    kind: str          # "entry" or "notebook"
+    notebook_id: str   # ID of the notebook that now contains the imported entries
+    entry_ids: list[str]  # IDs of the newly created entries, in order
+
+
 # --- Attachments ---
 
 class AttachmentOut(BaseModel):

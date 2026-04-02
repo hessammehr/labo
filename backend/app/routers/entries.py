@@ -1,16 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import PlainTextResponse, Response
 from pathlib import Path
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.access import require_access
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.events import EntryVersionEvent, entry_event_hub
 from app.models import Attachment, Entry, EntryRevision, Notebook, Permission, User
-from app.schemas import EntryCreate, EntryImport, EntryOut, EntryRevisionOut, EntryUpdate
-from app.services.export import EXPORT_FORMATS, AttachmentInfo, collect_attachment_ids, entry_to_markdown, export_document
+from app.schemas import EntryCreate, EntryImport, EntryOut, EntryRevisionOut, EntryUpdate, LaboImportResult
+from app.services.export import (
+    EXPORT_FORMATS,
+    AttachmentInfo,
+    collect_attachment_ids,
+    entry_to_markdown,
+    export_document,
+    export_labo_archive_entry,
+    read_labo_archive,
+    _rewrite_attachment_urls,
+)
 from app.services.markdown import blocks_to_markdown, markdown_to_blocks
 
 router = APIRouter(prefix="/entries", tags=["entries"])
@@ -152,14 +162,132 @@ def get_entry_markdown(
     )
 
 
+@router.post("/import-labo", response_model=LaboImportResult, status_code=status.HTTP_201_CREATED)
+async def import_labo_entry(
+    notebook_id: str = Query(..., description="Target notebook for imported entries"),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Import a Labo Archive (.zip) as one or more entries in an existing notebook.
+
+    Both entry archives and notebook archives are accepted; in either case
+    the entries are created inside the specified notebook.
+    """
+    require_access(db, user, "notebook", notebook_id, "write")
+
+    raw = await file.read()
+    try:
+        archive = read_labo_archive(raw)
+    except (ValueError, Exception) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    manifest = archive["manifest"]
+    att_files = archive["files"]
+
+    kind = manifest.get("kind")
+    if kind == "entry":
+        entries_data = [manifest]
+    elif kind == "notebook":
+        entries_data = manifest.get("entries", [])
+    else:
+        raise HTTPException(status_code=400, detail=f"Unrecognised archive kind: {kind!r}")
+
+    created_entry_ids: list[str] = []
+
+    for entry_data in entries_data:
+        entry = Entry(
+            notebook_id=notebook_id,
+            author_id=user.id,
+            title=entry_data["title"],
+            content_blocks=entry_data.get("content_blocks", []),
+            tags=entry_data.get("tags", []),
+        )
+        db.add(entry)
+        db.flush()  # obtain entry.id before writing attachments
+
+        id_map: dict[str, str] = {}
+        for att_meta in entry_data.get("attachments", []):
+            old_id: str = att_meta["id"]
+            file_info = att_files.get(old_id)
+            if not file_info:
+                continue  # file missing from archive — skip gracefully
+
+            entry_dir = settings.storage_dir / entry.id
+            entry_dir.mkdir(parents=True, exist_ok=True)
+            storage_path = entry_dir / file_info["filename"]
+            storage_path.write_bytes(file_info["data"])
+
+            attachment = Attachment(
+                entry_id=entry.id,
+                type=att_meta["type"],
+                filename=att_meta["filename"],
+                mime_type=att_meta["mime_type"],
+                size=len(file_info["data"]),
+                storage_uri=str(storage_path),
+            )
+            db.add(attachment)
+            db.flush()  # obtain attachment.id for URL rewriting
+            id_map[old_id] = attachment.id
+
+        if id_map:
+            entry.content_blocks = _rewrite_attachment_urls(entry.content_blocks, id_map)
+
+        created_entry_ids.append(entry.id)
+
+    db.commit()
+
+    # Notify subscribers after committing so IDs are stable.
+    for eid in created_entry_ids:
+        entry_obj = db.query(Entry).filter(Entry.id == eid).first()
+        if entry_obj:
+            _notify_entry_version(db, entry_obj)
+
+    return LaboImportResult(kind=kind, notebook_id=notebook_id, entry_ids=created_entry_ids)
+
+
 @router.get("/{entry_id}/export")
 def export_entry(
     entry_id: str,
-    format: str = Query("md", description="Export format: md, html, pdf, docx, latex"),
+    format: str = Query("md", description="Export format: md, html, pdf, docx, latex, labo"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     """Export an entry in the requested format."""
+    if format == "labo":
+        entry = db.query(Entry).filter(Entry.id == entry_id).first()
+        if not entry:
+            raise HTTPException(status_code=404, detail="Entry not found")
+        require_access(db, user, "entry", entry_id, "read")
+
+        db_attachments = (
+            db.query(Attachment).filter(Attachment.entry_id == entry_id).all()
+        )
+        att_dicts = [
+            {
+                "id": a.id,
+                "filename": a.filename,
+                "mime_type": a.mime_type,
+                "type": a.type,
+                "storage_path": a.storage_uri,
+            }
+            for a in db_attachments
+        ]
+        data = export_labo_archive_entry(
+            title=entry.title,
+            content_blocks=entry.content_blocks or [],
+            tags=entry.tags or [],
+            created_at=entry.created_at.isoformat(),
+            updated_at=entry.updated_at.isoformat(),
+            attachments=att_dicts,
+        )
+        safe_title = entry.title.replace(" ", "_")
+        return Response(
+            content=data,
+            media_type="application/zip",
+            headers={"Content-Disposition": f'attachment; filename="{safe_title}.zip"'},
+        )
+
     if format not in EXPORT_FORMATS:
         raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
 
