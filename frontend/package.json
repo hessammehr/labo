@@ -20,7 +20,6 @@
     "axios": "^1.13.5",
     "ketcher-core": "^3.12.0",
     "ketcher-react": "^3.12.0",
-    "ketcher-standalone": "^3.12.0",
     "lucide-react": "^0.575.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

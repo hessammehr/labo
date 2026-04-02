@@ -6,7 +6,7 @@ from starlette.responses import FileResponse
 
 from app.core.config import settings
 from app.core.database import Base, engine
-from app.routers import auth, attachments, entries, events, files, notebooks, permissions, scoped_tokens, search
+from app.routers import auth, attachments, entries, events, files, indigo, notebooks, permissions, scoped_tokens, search
 
 # Create tables (use alembic migrations for production)
 Base.metadata.create_all(bind=engine)
@@ -22,6 +22,7 @@ app.include_router(scoped_tokens.router, prefix="/api")
 app.include_router(files.router, prefix="/api")
 app.include_router(events.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
+app.include_router(indigo.router, prefix="/api")
 
 
 @app.get("/health")

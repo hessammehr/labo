@@ -15,7 +15,6 @@
         "axios": "^1.13.5",
         "ketcher-core": "^3.12.0",
         "ketcher-react": "^3.12.0",
-        "ketcher-standalone": "^3.12.0",
         "lucide-react": "^0.575.0",
         "react": "^19.2.0",
         "react-dom": "^19.2.0",
@@ -800,8 +799,6 @@
 
     "imurmurhash": ["imurmurhash@0.1.4", "", {}, "sha512-JmXMZ6wuvDmLiHEml9ykzqO6lwFbof0GG4IkcGaENdCRDDmMVnny7s5HsIgHCbaq0w2MyPhDqkhTUgS2LU2PHA=="],
 
-    "indigo-ketcher": ["indigo-ketcher@1.40.0", "", {}, "sha512-9lY3SsHUJXUYeiVTvQ1EfUGOuwFnT0ZpX3dPnPmZc+pYeQDQuGikJbbtPNbiuWhiUbz2VzsrX+e5FKApiHl07g=="],
-
     "inherits": ["inherits@2.0.4", "", {}, "sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ=="],
 
     "internmap": ["internmap@2.0.3", "", {}, "sha512-5Hh7Y1wQbvY5ooGgPbDaL5iYLAPzMTUrjMulskHLH6wnv/A+1q5rgEaiuqEjB+oxGXIVZs1FF+R/KPN3ZSQYYg=="],
@@ -865,8 +862,6 @@
     "ketcher-core": ["ketcher-core@3.12.0", "", { "dependencies": { "@babel/runtime": "^7.26.10", "assert": "^2.0.0", "d3": "^7.8.5", "file-saver": "^2.0.5", "lodash": "^4.17.21", "paper": "^0.12.18", "raphael": "^2.3.0", "react-device-detect": "^2.2.2", "svgpath": "^2.3.1" } }, "sha512-MQn0v6PiCdWAe3tHzOlYMSUA5KvieY8QfSeoZhujwanWRxfo9nWkJV/bJSkfehqVgrM4vT41MF23kES9yJB0jw=="],
 
     "ketcher-react": ["ketcher-react@3.12.0", "", { "dependencies": { "@babel/runtime": "^7.26.10", "@emotion/react": "^11.7.1", "@emotion/styled": "^11.14.1", "@mui/material": "^5.18.0", "ajv": "^8.10.0", "cfb": "^1.2.2", "clsx": "^1.1.1", "draft-js": "^0.11.7", "draft-js-custom-styles": "^2.1.1", "element-closest-polyfill": "^1.0.2", "file-saver": "^2.0.2", "font-face-observer": "^1.0.0", "hoist-non-react-statics": "^3.3.2", "intersection-observer": "^0.12.2", "ketcher-core": "*", "lodash": "^4.17.21", "miew-react": "0.11.0", "react-colorful": "^5.4.0", "react-contexify": "^6.0.0", "react-device-detect": "^2.2.2", "react-dropzone": "^11.7.1", "react-intersection-observer": "^9.16.0", "react-redux": "^9.2.0", "react-virtualized": "^9.22.6", "redux": "^5.0.1", "redux-logger": "^3.0.6", "redux-thunk": "^3.1.0", "regenerator-runtime": "^0.13.7", "remark-gfm": "^1.0.0", "remark-parse": "^9.0.0", "replace": "^1.2.0", "reselect": "^4.0.0", "subscription": "^3.0.0", "url-search-params-polyfill": "^8.1.1", "use-resize-observer": "^7.0.0", "whatwg-fetch": "^3.4.1" }, "peerDependencies": { "react": "^18.2.0 || ^19.0.0", "react-dom": "^18.2.0 || ^19.0.0" } }, "sha512-4Ni4qFWrUW2LB6937l0LaxK6Uv03IyK+5SuFc69dYZ7MNmRMnXpAk7GldMcZXHt8hDrqBsVS23HvuVedSz/heQ=="],
-
-    "ketcher-standalone": ["ketcher-standalone@3.12.0", "", { "dependencies": { "@babel/runtime": "^7.26.10", "indigo-ketcher": "1.40.0", "ketcher-core": "*" } }, "sha512-cjxiL48GzRuS4aUEfI5wcOCEnA8qMXHZtzwQRNqiglFZqf8qoPo94gJsP7qxhLpwwlR5WFrywGk2WeplxWpDIg=="],
 
     "keyv": ["keyv@4.5.4", "", { "dependencies": { "json-buffer": "3.0.1" } }, "sha512-oxVHkHR/EJf2CNXnWxRLW6mg7JyCCUcG0DtEGmL2ctUo1PNTin1PUil+r/+4r5MpVgC/fn1kjsx7mjSujKqIpw=="],
 

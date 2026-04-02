@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, useState, useCallback } from "react";
+import { RemoteStructServiceProvider } from "ketcher-core";
 import type { Ketcher } from "ketcher-core";
 
 // Lazy-load both the Editor component and its CSS so that nothing from
-// ketcher-react or ketcher-standalone lands in the initial bundle.
+// ketcher-react lands in the initial bundle.
 const KetcherEditor = lazy(() =>
   import("ketcher-react/dist/index.css").then(() =>
     import("ketcher-react").then((m) => ({ default: m.Editor })),
@@ -25,14 +26,12 @@ function isDarkMode(): boolean {
 export function KetcherModal({ open, initialKet, onSave, onClose }: Props) {
   const ketcherRef = useRef<Ketcher | null>(null);
 
-  // Load StandaloneStructServiceProvider lazily on first open
-  const [structServiceProvider, setStructServiceProvider] = useState<unknown>(null);
-  useEffect(() => {
-    if (!open || structServiceProvider) return;
-    import("ketcher-standalone").then((m) => {
-      setStructServiceProvider(new m.StandaloneStructServiceProvider());
-    });
-  }, [open, structServiceProvider]);
+  // Remote struct service provider — delegates chemistry operations to our
+  // backend's /api/indigo/* endpoints instead of bundling the 78 MB
+  // ketcher-standalone WASM blob.
+  const [structServiceProvider] = useState(
+    () => new RemoteStructServiceProvider("/api/"),
+  );
 
   // Close on Escape
   useEffect(() => {
@@ -133,28 +132,22 @@ export function KetcherModal({ open, initialKet, onSave, onClose }: Props) {
           className="min-h-0 flex-1"
           style={dark ? { filter: "invert(1) hue-rotate(180deg)" } : undefined}
         >
-          {structServiceProvider ? (
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center text-slate-400">
-                  Loading editor…
-                </div>
+          <Suspense
+            fallback={
+              <div className="flex h-full items-center justify-center text-slate-400">
+                Loading editor…
+              </div>
+            }
+          >
+            <KetcherEditor
+              staticResourcesUrl={process.env.PUBLIC_URL ?? "/"}
+              structServiceProvider={structServiceProvider as never}
+              errorHandler={(message: string) =>
+                console.error("Ketcher:", message)
               }
-            >
-              <KetcherEditor
-                staticResourcesUrl={process.env.PUBLIC_URL ?? "/"}
-                structServiceProvider={structServiceProvider as never}
-                errorHandler={(message: string) =>
-                  console.error("Ketcher:", message)
-                }
-                onInit={handleInit}
-              />
-            </Suspense>
-          ) : (
-            <div className="flex h-full items-center justify-center text-slate-400">
-              Loading editor…
-            </div>
-          )}
+              onInit={handleInit}
+            />
+          </Suspense>
         </div>
       </div>
     </div>
