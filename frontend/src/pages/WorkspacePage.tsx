@@ -586,6 +586,7 @@ export function WorkspacePage() {
     const mdFiles = files.filter((f) => f.name.endsWith(".md") || f.name.endsWith(".markdown"));
     if (mdFiles.length > 0) {
       setFileDropNotebookId(null);
+      setFileDropExplorer(false);
       for (const file of mdFiles) {
         const markdown = await file.text();
         await importMarkdown.mutateAsync({ notebookId, filename: file.name, markdown });
@@ -599,6 +600,7 @@ export function WorkspacePage() {
     const zipFiles = files.filter((f) => f.name.endsWith(".zip"));
     if (zipFiles.length > 0) {
       setFileDropNotebookId(null);
+      setFileDropExplorer(false);
       for (const file of zipFiles) {
         await importLaboArchive.mutateAsync({ notebookId, file });
       }
@@ -608,6 +610,7 @@ export function WorkspacePage() {
     // Internal entry move
     if (!draggingEntry) return;
     setDropNotebookId(null);
+    setFileDropExplorer(false);
     if (draggingEntry.fromNotebookId === notebookId) return;
     await moveEntry.mutateAsync({ entryId: draggingEntry.entryId, notebookId });
   };
@@ -615,6 +618,7 @@ export function WorkspacePage() {
   const onEntryFileDrop = async (event: ReactDragEvent, entryId: string) => {
     event.preventDefault();
     setFileDropEntryId(null);
+    setFileDropExplorer(false);
     const files = Array.from(event.dataTransfer.files);
     const nonMdFiles = files.filter((f) => !f.name.endsWith(".md") && !f.name.endsWith(".markdown"));
     for (const file of nonMdFiles) {
@@ -705,34 +709,7 @@ export function WorkspacePage() {
         }`}
       >
         {/* --- Explorer tree (top) --- */}
-        <div
-          className={`min-h-0 flex-1 overflow-y-auto${fileDropExplorer ? " ring-2 ring-inset ring-blue-400 dark:ring-blue-500" : ""}`}
-          onContextMenu={(event) => {
-            event.preventDefault();
-            openContextMenu(event, { x: event.clientX, y: event.clientY, kind: "root" });
-          }}
-          onDragOver={(event) => {
-            if (hasExternalFiles(event)) {
-              event.preventDefault();
-              setFileDropExplorer(true);
-            }
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
-              setFileDropExplorer(false);
-            }
-          }}
-          onDrop={async (event) => {
-            event.preventDefault();
-            setFileDropExplorer(false);
-            const files = Array.from(event.dataTransfer.files);
-            const zipFiles = files.filter((f) => f.name.endsWith(".zip"));
-            for (const file of zipFiles) {
-              await importLaboArchive.mutateAsync({ file }); // no notebookId → create new notebook
-            }
-          }}
-        >
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
+        <div className="shrink-0 flex items-center justify-between border-b border-slate-200 dark:border-slate-800 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-600 dark:text-slate-300">
           <span>Explorer</span>
           <div className="flex items-center gap-1">
             <button
@@ -770,6 +747,33 @@ export function WorkspacePage() {
           </div>
         </div>
 
+        <div
+          className={`min-h-0 flex-1 overflow-y-auto${fileDropExplorer ? " ring-2 ring-inset ring-blue-400 dark:ring-blue-500" : ""}`}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            openContextMenu(event, { x: event.clientX, y: event.clientY, kind: "root" });
+          }}
+          onDragOver={(event) => {
+            if (hasExternalFiles(event)) {
+              event.preventDefault();
+              setFileDropExplorer(true);
+            }
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+              setFileDropExplorer(false);
+            }
+          }}
+          onDrop={async (event) => {
+            event.preventDefault();
+            setFileDropExplorer(false);
+            const files = Array.from(event.dataTransfer.files);
+            const zipFiles = files.filter((f) => f.name.endsWith(".zip"));
+            for (const file of zipFiles) {
+              await importLaboArchive.mutateAsync({ file }); // no notebookId → create new notebook
+            }
+          }}
+        >
         <div className="py-1">
           {creatingNotebookName !== "" && (
             <div className="flex items-center gap-2 px-3 py-1">
