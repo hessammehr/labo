@@ -44,6 +44,7 @@ class NotebookOut(BaseModel):
     author_id: str
     title: str
     description: str
+    position: int = 0
     created_at: datetime
     updated_at: datetime
     sharing_level: str | None = None
@@ -84,6 +85,7 @@ class EntryOut(BaseModel):
     content_blocks: list[dict]
     tags: list[str]
     version: int
+    position: int = 0
     created_at: datetime
     updated_at: datetime
 

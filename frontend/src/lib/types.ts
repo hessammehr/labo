@@ -3,6 +3,7 @@ export type Notebook = {
   author_id: string;
   title: string;
   description: string;
+  position: number;
   created_at: string;
   updated_at: string;
   sharing_level: string | null;
@@ -16,6 +17,7 @@ export type Entry = {
   content_blocks: Array<Record<string, unknown>>;
   tags: string[];
   version: number;
+  position: number;
   created_at: string;
   updated_at: string;
 };

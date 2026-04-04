@@ -36,6 +36,7 @@ class Notebook(Base):
     author_id = Column(String(32), ForeignKey("users.id"), nullable=False)
     title = Column(String(255), nullable=False)
     description = Column(Text, default="")
+    position = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 
@@ -58,6 +59,7 @@ class Entry(Base):
     content_blocks = Column(JSON, default=list)
     tags = Column(JSON, default=list)
     version = Column(Integer, nullable=False, default=1)
+    position = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 

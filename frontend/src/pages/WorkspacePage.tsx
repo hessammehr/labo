@@ -109,7 +109,7 @@ export function WorkspacePage() {
   const [isEditorDirty, setIsEditorDirty] = useState(false);
   const [remoteAheadVersion, setRemoteAheadVersion] = useState<number | null>(null);
   const [expandedNotebookIds, setExpandedNotebookIds] = useState<Record<string, boolean>>({});
-  const [creatingNotebookName, setCreatingNotebookName] = useState("");
+  const [creatingNotebookName, setCreatingNotebookName] = useState<string | null>(null);
   const [creatingEntryNotebookId, setCreatingEntryNotebookId] = useState<string | null>(null);
   const [creatingEntryTitle, setCreatingEntryTitle] = useState("");
   const [renameState, setRenameState] = useState<RenameState>(null);
@@ -119,6 +119,10 @@ export function WorkspacePage() {
   const [fileDropNotebookId, setFileDropNotebookId] = useState<string | null>(null);
   const [fileDropEntryId, setFileDropEntryId] = useState<string | null>(null);
   const [fileDropExplorer, setFileDropExplorer] = useState(false);
+  const [draggingNotebook, setDraggingNotebook] = useState<string | null>(null);
+  const [dropBeforeNotebookId, setDropBeforeNotebookId] = useState<string | null>(null);
+  const [draggingEntryReorder, setDraggingEntryReorder] = useState<{ entryId: string; notebookId: string } | null>(null);
+  const [dropBeforeEntryId, setDropBeforeEntryId] = useState<string | null>(null);
   const [draggingAttachment, setDraggingAttachment] = useState<{ attachmentId: string; fromEntryId: string } | null>(null);
   const [attDropEntryId, setAttDropEntryId] = useState<string | null>(null);
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
@@ -366,6 +370,20 @@ export function WorkspacePage() {
     },
   });
 
+  const reorderNotebooks = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      await api.patch("/notebooks/reorder", { ordered_ids: orderedIds });
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["notebooks"] }),
+  });
+
+  const reorderEntries = useMutation({
+    mutationFn: async ({ notebookId, orderedIds }: { notebookId: string; orderedIds: string[] }) => {
+      await api.patch(`/entries/notebook/${notebookId}/reorder`, { ordered_ids: orderedIds });
+    },
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ["entries"] }),
+  });
+
   const importLaboArchive = useMutation({
     mutationFn: async ({ notebookId, file }: { notebookId?: string; file: File }) => {
       const form = new FormData();
@@ -536,10 +554,13 @@ export function WorkspacePage() {
   const orderedNotebooks = notebooksQuery.data ?? [];
 
   const submitCreateNotebook = async () => {
-    const title = creatingNotebookName.trim();
-    if (!title) return;
+    const title = creatingNotebookName?.trim();
+    if (!title) {
+      setCreatingNotebookName(null);
+      return;
+    }
     await createNotebook.mutateAsync(title);
-    setCreatingNotebookName("");
+    setCreatingNotebookName(null);
   };
 
   const submitCreateEntry = async () => {
@@ -724,20 +745,6 @@ export function WorkspacePage() {
               <LabBookPlus size={14} />
             </button>
             <button
-              title="New Entry"
-              className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800"
-              onClick={() => {
-                const firstNotebook = orderedNotebooks[0];
-                if (!firstNotebook) return;
-                setCreatingEntryNotebookId(firstNotebook.id);
-                setCreatingEntryTitle("Untitled Entry");
-                setExpandedNotebookIds((prev) => ({ ...prev, [firstNotebook.id]: true }));
-                setRenameState(null);
-              }}
-            >
-              <FilePlus2 size={14} />
-            </button>
-            <button
               title="Close explorer"
               className="p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
               onClick={() => setLeftOpen(false)}
@@ -775,17 +782,18 @@ export function WorkspacePage() {
           }}
         >
         <div className="py-1">
-          {creatingNotebookName !== "" && (
+          {creatingNotebookName !== null && (
             <div className="flex items-center gap-2 px-3 py-1">
               <LabBook size={14} className="text-slate-500 dark:text-slate-400" />
               <input
                 autoFocus
                 value={creatingNotebookName}
                 onChange={(event) => setCreatingNotebookName(event.target.value)}
+                onFocus={(event) => event.target.select()}
                 onBlur={submitCreateNotebook}
                 onKeyDown={async (event) => {
                   if (event.key === "Enter") await submitCreateNotebook();
-                  if (event.key === "Escape") setCreatingNotebookName("");
+                  if (event.key === "Escape") setCreatingNotebookName(null);
                 }}
                 className="w-full border border-slate-300 dark:border-slate-700 px-1 py-0.5 text-sm outline-none dark:bg-slate-950 dark:text-slate-100"
               />
@@ -801,9 +809,10 @@ export function WorkspacePage() {
             return (
               <div key={notebook.id}>
                 <div
+                  draggable
                   className={`group flex items-center gap-1 px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800 ${
                     dropNotebookId === notebook.id || fileDropNotebookId === notebook.id ? "bg-blue-100 dark:bg-blue-900/40" : ""
-                  }`}
+                  } ${dropBeforeNotebookId === notebook.id ? "border-t-2 border-blue-500" : ""}`}
                   onContextMenu={(event) => {
                     event.stopPropagation();
                     openContextMenu(event, {
@@ -813,10 +822,25 @@ export function WorkspacePage() {
                       notebookId: notebook.id,
                     });
                   }}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/notebook-id", notebook.id);
+                    setDraggingNotebook(notebook.id);
+                  }}
+                  onDragEnd={() => {
+                    setDraggingNotebook(null);
+                    setDropBeforeNotebookId(null);
+                  }}
                   onDragOver={(event) => {
                     if (hasExternalFiles(event)) {
                       event.preventDefault();
                       setFileDropNotebookId(notebook.id);
+                      return;
+                    }
+                    // Notebook reorder
+                    if (draggingNotebook && draggingNotebook !== notebook.id) {
+                      event.preventDefault();
+                      setDropBeforeNotebookId(notebook.id);
                       return;
                     }
                     if (!draggingEntry || draggingEntry.fromNotebookId === notebook.id) return;
@@ -826,9 +850,20 @@ export function WorkspacePage() {
                   onDragLeave={() => {
                     if (dropNotebookId === notebook.id) setDropNotebookId(null);
                     if (fileDropNotebookId === notebook.id) setFileDropNotebookId(null);
+                    if (dropBeforeNotebookId === notebook.id) setDropBeforeNotebookId(null);
                   }}
                   onDrop={(event) => {
                     event.stopPropagation();
+                    // Notebook reorder
+                    if (draggingNotebook && draggingNotebook !== notebook.id) {
+                      event.preventDefault();
+                      setDropBeforeNotebookId(null);
+                      const ids = orderedNotebooks.map((n) => n.id).filter((id) => id !== draggingNotebook);
+                      const targetIdx = ids.indexOf(notebook.id);
+                      ids.splice(targetIdx, 0, draggingNotebook);
+                      void reorderNotebooks.mutateAsync(ids);
+                      return;
+                    }
                     void onNotebookDrop(event, notebook.id);
                   }}
                 >
@@ -895,6 +930,7 @@ export function WorkspacePage() {
                           autoFocus
                           value={creatingEntryTitle}
                           onChange={(event) => setCreatingEntryTitle(event.target.value)}
+                          onFocus={(event) => event.target.select()}
                           onBlur={submitCreateEntry}
                           onKeyDown={async (event) => {
                             if (event.key === "Enter") await submitCreateEntry();
@@ -916,7 +952,7 @@ export function WorkspacePage() {
                           fileDropEntryId === entry.id || attDropEntryId === entry.id
                             ? "bg-green-100 dark:bg-green-900/40"
                             : selectedEntry?.id === entry.id ? "bg-blue-100 dark:bg-blue-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                        }`}
+                        } ${dropBeforeEntryId === entry.id ? "border-t-2 border-blue-500" : ""}`}
                         onContextMenu={(event) => {
                           event.stopPropagation();
                           openContextMenu(event, {
@@ -927,15 +963,26 @@ export function WorkspacePage() {
                             notebookId: notebook.id,
                           });
                         }}
-                        onDragStart={(event) => onEntryDragStart(event, entry)}
+                        onDragStart={(event) => {
+                          onEntryDragStart(event, entry);
+                          setDraggingEntryReorder({ entryId: entry.id, notebookId: notebook.id });
+                        }}
                         onDragEnd={() => {
                           setDraggingEntry(null);
+                          setDraggingEntryReorder(null);
                           setDropNotebookId(null);
+                          setDropBeforeEntryId(null);
                         }}
                         onDragOver={(event) => {
                           if (hasExternalFiles(event)) {
                             event.preventDefault();
                             setFileDropEntryId(entry.id);
+                            return;
+                          }
+                          // Entry reorder within same notebook
+                          if (draggingEntryReorder && draggingEntryReorder.notebookId === notebook.id && draggingEntryReorder.entryId !== entry.id) {
+                            event.preventDefault();
+                            setDropBeforeEntryId(entry.id);
                             return;
                           }
                           if (draggingAttachment && draggingAttachment.fromEntryId !== entry.id) {
@@ -946,11 +993,22 @@ export function WorkspacePage() {
                         onDragLeave={() => {
                           if (fileDropEntryId === entry.id) setFileDropEntryId(null);
                           if (attDropEntryId === entry.id) setAttDropEntryId(null);
+                          if (dropBeforeEntryId === entry.id) setDropBeforeEntryId(null);
                         }}
                         onDrop={(event) => {
                           event.stopPropagation();
                           if (hasExternalFiles(event)) {
                             void onEntryFileDrop(event, entry.id);
+                            return;
+                          }
+                          // Entry reorder within same notebook
+                          if (draggingEntryReorder && draggingEntryReorder.notebookId === notebook.id && draggingEntryReorder.entryId !== entry.id) {
+                            event.preventDefault();
+                            setDropBeforeEntryId(null);
+                            const ids = entries.map((e) => e.id).filter((id) => id !== draggingEntryReorder.entryId);
+                            const targetIdx = ids.indexOf(entry.id);
+                            ids.splice(targetIdx, 0, draggingEntryReorder.entryId);
+                            void reorderEntries.mutateAsync({ notebookId: notebook.id, orderedIds: ids });
                             return;
                           }
                           if (draggingAttachment && draggingAttachment.fromEntryId !== entry.id) {

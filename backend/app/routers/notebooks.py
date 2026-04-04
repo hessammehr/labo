@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import Response
 from pathlib import Path
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
+from pydantic import BaseModel
 from app.core.access import require_access, user_sharing_status
 from app.core.config import settings
 from app.core.database import get_db
@@ -27,7 +29,7 @@ router = APIRouter(prefix="/notebooks", tags=["notebooks"])
 @router.get("/", response_model=list[NotebookOut])
 def list_notebooks(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role == "admin":
-        notebooks = db.query(Notebook).all()
+        notebooks = db.query(Notebook).order_by(Notebook.position, Notebook.created_at).all()
     else:
         notebooks = (
             db.query(Notebook)
@@ -39,6 +41,7 @@ def list_notebooks(db: Session = Depends(get_db), user: User = Depends(get_curre
                     )
                 )
             )
+            .order_by(Notebook.position, Notebook.created_at)
             .all()
         )
 
@@ -57,7 +60,18 @@ def create_notebook(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    notebook = Notebook(author_id=user.id, title=body.title, description=body.description)
+    # Place new notebook at the end of the user's list
+    max_pos = (
+        db.query(sa.func.max(Notebook.position))
+        .join(Permission, sa.and_(
+            Permission.resource_id == Notebook.id,
+            Permission.resource_type == "notebook",
+            Permission.subject_id == user.id,
+        ))
+        .scalar()
+    )
+    next_pos = (max_pos or 0) + 1
+    notebook = Notebook(author_id=user.id, title=body.title, description=body.description, position=next_pos)
     db.add(notebook)
     db.flush()  # get notebook.id
 
@@ -72,6 +86,24 @@ def create_notebook(
     db.commit()
     db.refresh(notebook)
     return notebook
+
+
+class ReorderRequest(BaseModel):
+    ordered_ids: list[str]
+
+
+@router.patch("/reorder", status_code=status.HTTP_204_NO_CONTENT)
+def reorder_notebooks(
+    body: ReorderRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Set the display order of notebooks for the current user."""
+    for idx, notebook_id in enumerate(body.ordered_ids):
+        nb = db.query(Notebook).filter(Notebook.id == notebook_id).first()
+        if nb:
+            nb.position = idx
+    db.commit()
 
 
 @router.get("/{notebook_id}", response_model=NotebookOut)

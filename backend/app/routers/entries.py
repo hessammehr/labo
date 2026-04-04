@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, 
 from fastapi.responses import PlainTextResponse, Response
 from pathlib import Path
 from pydantic import BaseModel
+import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
 from app.core.access import require_access
@@ -65,12 +66,20 @@ def create_entry(
 ):
     require_access(db, user, "notebook", body.notebook_id, "write")
 
+    max_pos = (
+        db.query(sa.func.max(Entry.position))
+        .filter(Entry.notebook_id == body.notebook_id)
+        .scalar()
+    )
+    next_pos = (max_pos or 0) + 1
+
     entry = Entry(
         notebook_id=body.notebook_id,
         author_id=user.id,
         title=body.title,
         content_blocks=body.content_blocks,
         tags=body.tags,
+        position=next_pos,
     )
     db.add(entry)
     db.commit()
@@ -125,7 +134,7 @@ def list_entries_for_notebook(
     return (
         db.query(Entry)
         .filter(Entry.notebook_id == notebook_id)
-        .order_by(Entry.updated_at.desc())
+        .order_by(Entry.position, Entry.created_at)
         .all()
     )
 
@@ -351,6 +360,26 @@ def export_entry(
         media_type=mime,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+class ReorderEntriesRequest(BaseModel):
+    ordered_ids: list[str]
+
+
+@router.patch("/notebook/{notebook_id}/reorder", status_code=status.HTTP_204_NO_CONTENT)
+def reorder_entries(
+    notebook_id: str,
+    body: ReorderEntriesRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Set the display order of entries within a notebook."""
+    require_access(db, user, "notebook", notebook_id, "write")
+    for idx, entry_id in enumerate(body.ordered_ids):
+        entry = db.query(Entry).filter(Entry.id == entry_id, Entry.notebook_id == notebook_id).first()
+        if entry:
+            entry.position = idx
+    db.commit()
 
 
 @router.put("/{entry_id}", response_model=EntryOut)
