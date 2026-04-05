@@ -120,9 +120,9 @@ export function WorkspacePage() {
   const [fileDropEntryId, setFileDropEntryId] = useState<string | null>(null);
   const [fileDropExplorer, setFileDropExplorer] = useState(false);
   const [draggingNotebook, setDraggingNotebook] = useState<string | null>(null);
-  const [dropBeforeNotebookId, setDropBeforeNotebookId] = useState<string | null>(null);
+  const [notebookDropTarget, setNotebookDropTarget] = useState<{ id: string; half: "top" | "bottom" } | null>(null);
   const [draggingEntryReorder, setDraggingEntryReorder] = useState<{ entryId: string; notebookId: string } | null>(null);
-  const [dropBeforeEntryId, setDropBeforeEntryId] = useState<string | null>(null);
+  const [entryDropTarget, setEntryDropTarget] = useState<{ id: string; half: "top" | "bottom" } | null>(null);
   const [draggingAttachment, setDraggingAttachment] = useState<{ attachmentId: string; fromEntryId: string } | null>(null);
   const [attDropEntryId, setAttDropEntryId] = useState<string | null>(null);
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
@@ -593,6 +593,21 @@ export function WorkspacePage() {
 
   const menuEntry = contextMenu?.kind === "entry" ? allEntries.find((e) => e.id === contextMenu.entryId) : null;
 
+  /** Which half of an element the cursor is in. */
+  const dropHalf = (event: ReactDragEvent): "top" | "bottom" => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    return event.clientY < rect.top + rect.height / 2 ? "top" : "bottom";
+  };
+
+  /** Insert `draggedId` into `ids` relative to `targetId` based on cursor half. */
+  const reorderIds = (ids: string[], draggedId: string, targetId: string, half: "top" | "bottom") => {
+    const filtered = ids.filter((id) => id !== draggedId);
+    const targetIdx = filtered.indexOf(targetId);
+    const insertIdx = half === "top" ? targetIdx : targetIdx + 1;
+    filtered.splice(insertIdx, 0, draggedId);
+    return filtered;
+  };
+
   const onEntryDragStart = (event: ReactDragEvent, entry: Entry) => {
     event.dataTransfer.effectAllowed = "move";
     event.dataTransfer.setData("text/entry-id", entry.id);
@@ -807,12 +822,45 @@ export function WorkspacePage() {
             const expanded = expandedNotebookIds[notebook.id] ?? true;
 
             return (
-              <div key={notebook.id}>
+              <div
+                key={notebook.id}
+                className={`${
+                  notebookDropTarget?.id === notebook.id && notebookDropTarget.half === "top" ? "border-t-2 border-blue-500" : ""
+                } ${notebookDropTarget?.id === notebook.id && notebookDropTarget.half === "bottom" ? "border-b-2 border-blue-500" : ""}`}
+                onDragOverCapture={(event) => {
+                  // Capture phase: intercept before any child can handle/stop.
+                  if (draggingNotebook && draggingNotebook !== notebook.id) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setNotebookDropTarget({ id: notebook.id, half: dropHalf(event) });
+                  }
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                    if (notebookDropTarget?.id === notebook.id) setNotebookDropTarget(null);
+                  }
+                }}
+                onDropCapture={(event) => {
+                  // Capture phase: intercept before any child can handle/stop.
+                  if (draggingNotebook && draggingNotebook !== notebook.id && notebookDropTarget) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const ids = reorderIds(
+                      orderedNotebooks.map((n) => n.id),
+                      draggingNotebook,
+                      notebook.id,
+                      notebookDropTarget.half,
+                    );
+                    setNotebookDropTarget(null);
+                    void reorderNotebooks.mutateAsync(ids);
+                  }
+                }}
+              >
                 <div
                   draggable
                   className={`group flex items-center gap-1 px-2 py-1 hover:bg-slate-100 dark:hover:bg-slate-800 ${
                     dropNotebookId === notebook.id || fileDropNotebookId === notebook.id ? "bg-blue-100 dark:bg-blue-900/40" : ""
-                  } ${dropBeforeNotebookId === notebook.id ? "border-t-2 border-blue-500" : ""}`}
+                  }`}
                   onContextMenu={(event) => {
                     event.stopPropagation();
                     openContextMenu(event, {
@@ -829,18 +877,12 @@ export function WorkspacePage() {
                   }}
                   onDragEnd={() => {
                     setDraggingNotebook(null);
-                    setDropBeforeNotebookId(null);
+                    setNotebookDropTarget(null);
                   }}
                   onDragOver={(event) => {
                     if (hasExternalFiles(event)) {
                       event.preventDefault();
                       setFileDropNotebookId(notebook.id);
-                      return;
-                    }
-                    // Notebook reorder
-                    if (draggingNotebook && draggingNotebook !== notebook.id) {
-                      event.preventDefault();
-                      setDropBeforeNotebookId(notebook.id);
                       return;
                     }
                     if (!draggingEntry || draggingEntry.fromNotebookId === notebook.id) return;
@@ -850,20 +892,9 @@ export function WorkspacePage() {
                   onDragLeave={() => {
                     if (dropNotebookId === notebook.id) setDropNotebookId(null);
                     if (fileDropNotebookId === notebook.id) setFileDropNotebookId(null);
-                    if (dropBeforeNotebookId === notebook.id) setDropBeforeNotebookId(null);
                   }}
                   onDrop={(event) => {
                     event.stopPropagation();
-                    // Notebook reorder
-                    if (draggingNotebook && draggingNotebook !== notebook.id) {
-                      event.preventDefault();
-                      setDropBeforeNotebookId(null);
-                      const ids = orderedNotebooks.map((n) => n.id).filter((id) => id !== draggingNotebook);
-                      const targetIdx = ids.indexOf(notebook.id);
-                      ids.splice(targetIdx, 0, draggingNotebook);
-                      void reorderNotebooks.mutateAsync(ids);
-                      return;
-                    }
                     void onNotebookDrop(event, notebook.id);
                   }}
                 >
@@ -945,14 +976,47 @@ export function WorkspacePage() {
                     )}
 
                     {entries.map((entry) => (
-                      <div key={entry.id}>
+                      <div
+                        key={entry.id}
+                        className={`${
+                          entryDropTarget?.id === entry.id && entryDropTarget.half === "top" ? "border-t-2 border-blue-500" : ""
+                        } ${entryDropTarget?.id === entry.id && entryDropTarget.half === "bottom" ? "border-b-2 border-blue-500" : ""}`}
+                        onDragOverCapture={(event) => {
+                          // Capture phase: intercept before any child can handle/stop.
+                          if (draggingEntryReorder && draggingEntryReorder.notebookId === notebook.id && draggingEntryReorder.entryId !== entry.id) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setEntryDropTarget({ id: entry.id, half: dropHalf(event) });
+                          }
+                        }}
+                        onDragLeave={(event) => {
+                          if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                            if (entryDropTarget?.id === entry.id) setEntryDropTarget(null);
+                          }
+                        }}
+                        onDropCapture={(event) => {
+                          // Capture phase: intercept before any child can handle/stop.
+                          if (draggingEntryReorder && draggingEntryReorder.notebookId === notebook.id && draggingEntryReorder.entryId !== entry.id && entryDropTarget) {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const ids = reorderIds(
+                              entries.map((e) => e.id),
+                              draggingEntryReorder.entryId,
+                              entry.id,
+                              entryDropTarget.half,
+                            );
+                            setEntryDropTarget(null);
+                            void reorderEntries.mutateAsync({ notebookId: notebook.id, orderedIds: ids });
+                          }
+                        }}
+                      >
                       <div
                         draggable
                         className={`group flex items-center gap-2 py-1 pr-2 ${
                           fileDropEntryId === entry.id || attDropEntryId === entry.id
                             ? "bg-green-100 dark:bg-green-900/40"
                             : selectedEntry?.id === entry.id ? "bg-blue-100 dark:bg-blue-900/40" : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                        } ${dropBeforeEntryId === entry.id ? "border-t-2 border-blue-500" : ""}`}
+                        }`}
                         onContextMenu={(event) => {
                           event.stopPropagation();
                           openContextMenu(event, {
@@ -971,18 +1035,12 @@ export function WorkspacePage() {
                           setDraggingEntry(null);
                           setDraggingEntryReorder(null);
                           setDropNotebookId(null);
-                          setDropBeforeEntryId(null);
+                          setEntryDropTarget(null);
                         }}
                         onDragOver={(event) => {
                           if (hasExternalFiles(event)) {
                             event.preventDefault();
                             setFileDropEntryId(entry.id);
-                            return;
-                          }
-                          // Entry reorder within same notebook
-                          if (draggingEntryReorder && draggingEntryReorder.notebookId === notebook.id && draggingEntryReorder.entryId !== entry.id) {
-                            event.preventDefault();
-                            setDropBeforeEntryId(entry.id);
                             return;
                           }
                           if (draggingAttachment && draggingAttachment.fromEntryId !== entry.id) {
@@ -993,22 +1051,11 @@ export function WorkspacePage() {
                         onDragLeave={() => {
                           if (fileDropEntryId === entry.id) setFileDropEntryId(null);
                           if (attDropEntryId === entry.id) setAttDropEntryId(null);
-                          if (dropBeforeEntryId === entry.id) setDropBeforeEntryId(null);
                         }}
                         onDrop={(event) => {
                           event.stopPropagation();
                           if (hasExternalFiles(event)) {
                             void onEntryFileDrop(event, entry.id);
-                            return;
-                          }
-                          // Entry reorder within same notebook
-                          if (draggingEntryReorder && draggingEntryReorder.notebookId === notebook.id && draggingEntryReorder.entryId !== entry.id) {
-                            event.preventDefault();
-                            setDropBeforeEntryId(null);
-                            const ids = entries.map((e) => e.id).filter((id) => id !== draggingEntryReorder.entryId);
-                            const targetIdx = ids.indexOf(entry.id);
-                            ids.splice(targetIdx, 0, draggingEntryReorder.entryId);
-                            void reorderEntries.mutateAsync({ notebookId: notebook.id, orderedIds: ids });
                             return;
                           }
                           if (draggingAttachment && draggingAttachment.fromEntryId !== entry.id) {
@@ -1112,11 +1159,13 @@ export function WorkspacePage() {
                       )}
                       </div>
                     ))}
+
                   </div>
                 )}
               </div>
             );
           })}
+
         </div>
 
         </div>{/* end explorer scroll area */}
