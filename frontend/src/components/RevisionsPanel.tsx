@@ -4,7 +4,7 @@ import { RotateCcw } from "lucide-react";
 
 import { api } from "../lib/api";
 import { computeDiff, type DiffSummary } from "../lib/diffBlocks";
-import type { Entry } from "../lib/types";
+import type { Entry, UserSearchResult } from "../lib/types";
 
 export type Revision = {
   id: number;
@@ -51,6 +51,29 @@ export function RevisionsPanel({
   });
 
   const revisions = useMemo(() => revisionsQuery.data ?? [], [revisionsQuery.data]);
+
+  const authorIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of revisions) if (r.author_id) ids.add(r.author_id);
+    return Array.from(ids).sort();
+  }, [revisions]);
+
+  const authorsQuery = useQuery({
+    queryKey: ["users", authorIds],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      for (const id of authorIds) params.append("ids", id);
+      const { data } = await api.get<UserSearchResult[]>(`/users?${params.toString()}`);
+      return data;
+    },
+    enabled: authorIds.length > 0,
+  });
+
+  const authorById = useMemo(() => {
+    const map = new Map<string, UserSearchResult>();
+    for (const u of authorsQuery.data ?? []) map.set(u.id, u);
+    return map;
+  }, [authorsQuery.data]);
 
   // Revisions are ordered newest-first.
   // revision[i].content_blocks = state *before* that update.
@@ -103,13 +126,21 @@ export function RevisionsPanel({
             onClick={() => onPreview?.(isActive || isNewest ? null : { ...rev, content_blocks: rev.afterContent })}
           >
             <div className="flex items-center justify-between">
-              <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                {new Date(rev.created_at).toLocaleString(undefined, {
-                  month: "short",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {new Date(rev.created_at).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </div>
+                <div
+                  className="truncate text-[11px] text-slate-600 dark:text-slate-300"
+                  title={authorById.get(rev.author_id)?.email ?? rev.author_id}
+                >
+                  {authorById.get(rev.author_id)?.name ?? rev.author_id.slice(0, 8)}
+                </div>
               </div>
               <button
                 title="Restore this revision"
