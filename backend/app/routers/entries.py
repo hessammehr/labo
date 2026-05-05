@@ -1,9 +1,13 @@
+from datetime import timedelta, timezone
+
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from fastapi.responses import PlainTextResponse, Response
 from pathlib import Path
 from pydantic import BaseModel
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
+
+from app.models import _utcnow
 
 from app.core.access import require_access
 from app.core.config import settings
@@ -25,6 +29,12 @@ from app.services.export import (
 from app.services.markdown import blocks_to_markdown, markdown_to_blocks
 
 router = APIRouter(prefix="/entries", tags=["entries"])
+
+# If an entry hasn't been touched in this long, the next save (autosave or
+# checkpoint) snapshots the pre-update state into a revision automatically.
+# This guarantees that users who never explicitly checkpoint still get
+# restore points whenever they pause editing.
+AUTO_CHECKPOINT_INTERVAL = timedelta(minutes=10)
 
 
 class MarkdownParseRequest(BaseModel):
@@ -425,13 +435,30 @@ def update_entry(
             },
         )
 
-    # Only create a revision on explicit checkpoint saves that change content.
-    if body.checkpoint and "content_blocks" in changed_fields:
+    # Decide whether this update should produce a revision. Two cases:
+    #  1. Explicit checkpoint save that changes content_blocks.
+    #  2. Auto-checkpoint: a non-checkpoint save that changes content_blocks
+    #     after a long idle gap. We anchor on entry.updated_at, which is
+    #     bumped by every save (autosave or checkpoint), so continuous
+    #     editing never triggers it but resuming after a break does.
+    # SQLite drops tzinfo on read, so normalise to UTC-aware before comparing.
+    last_touched = entry.updated_at
+    if last_touched is not None and last_touched.tzinfo is None:
+        last_touched = last_touched.replace(tzinfo=timezone.utc)
+    should_snapshot = "content_blocks" in changed_fields and (
+        body.checkpoint
+        or (
+            last_touched is not None
+            and _utcnow() - last_touched >= AUTO_CHECKPOINT_INTERVAL
+        )
+    )
+    if should_snapshot:
+        summary = body.change_summary if body.checkpoint else "Auto checkpoint"
         revision = EntryRevision(
             entry_id=entry.id,
             author_id=user.id,
             content_blocks=entry.content_blocks,
-            change_summary=body.change_summary,
+            change_summary=summary,
         )
         db.add(revision)
 

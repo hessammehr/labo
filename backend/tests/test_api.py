@@ -227,6 +227,96 @@ class TestEntries:
         # Revision stores the state *before* the checkpoint
         assert revisions[0]["content_blocks"] == [{"type": "text", "text": "hello v2"}]
 
+    def test_auto_checkpoint_after_idle_gap(self, client, db):
+        from datetime import timedelta
+        from app.models import Entry, _utcnow
+
+        _register(client)
+        _login(client)
+
+        nb = client.post("/api/notebooks/", json={"title": "NB"}).json()
+        entry = client.post(
+            "/api/entries/",
+            json={
+                "notebook_id": nb["id"],
+                "title": "E",
+                "content_blocks": [{"type": "text", "text": "v1"}],
+            },
+        ).json()
+        entry_id = entry["id"]
+
+        # Two back-to-back autosaves: continuous editing, no idle gap → no revisions.
+        client.put(
+            f"/api/entries/{entry_id}",
+            json={"content_blocks": [{"type": "text", "text": "v2"}]},
+        )
+        client.put(
+            f"/api/entries/{entry_id}",
+            json={"content_blocks": [{"type": "text", "text": "v3"}]},
+        )
+        assert client.get(f"/api/entries/{entry_id}/revisions").json() == []
+
+        # Simulate the user stepping away by backdating updated_at past the threshold.
+        db_entry = db.query(Entry).filter(Entry.id == entry_id).first()
+        db_entry.updated_at = _utcnow() - timedelta(minutes=15)
+        db.commit()
+
+        # Next autosave should snapshot the pre-update state ("v3") as an auto checkpoint.
+        resp = client.put(
+            f"/api/entries/{entry_id}",
+            json={"content_blocks": [{"type": "text", "text": "v4"}]},
+        )
+        assert resp.status_code == 200
+
+        revisions = client.get(f"/api/entries/{entry_id}/revisions").json()
+        assert len(revisions) == 1
+        assert revisions[0]["change_summary"] == "Auto checkpoint"
+        assert revisions[0]["content_blocks"] == [{"type": "text", "text": "v3"}]
+
+        # The autosave that just landed advanced updated_at, so an immediate
+        # follow-up autosave must NOT create another revision.
+        client.put(
+            f"/api/entries/{entry_id}",
+            json={"content_blocks": [{"type": "text", "text": "v5"}]},
+        )
+        assert len(client.get(f"/api/entries/{entry_id}/revisions").json()) == 1
+
+    def test_auto_checkpoint_does_not_double_with_explicit_checkpoint(self, client, db):
+        from datetime import timedelta
+        from app.models import Entry, _utcnow
+
+        _register(client)
+        _login(client)
+
+        nb = client.post("/api/notebooks/", json={"title": "NB"}).json()
+        entry = client.post(
+            "/api/entries/",
+            json={
+                "notebook_id": nb["id"],
+                "title": "E",
+                "content_blocks": [{"type": "text", "text": "v1"}],
+            },
+        ).json()
+        entry_id = entry["id"]
+
+        # Idle gap, then an explicit checkpoint — should yield exactly one
+        # revision (with the user's summary), not one auto + one explicit.
+        db_entry = db.query(Entry).filter(Entry.id == entry_id).first()
+        db_entry.updated_at = _utcnow() - timedelta(minutes=15)
+        db.commit()
+
+        client.put(
+            f"/api/entries/{entry_id}",
+            json={
+                "content_blocks": [{"type": "text", "text": "v2"}],
+                "checkpoint": True,
+                "change_summary": "manual",
+            },
+        )
+        revisions = client.get(f"/api/entries/{entry_id}/revisions").json()
+        assert len(revisions) == 1
+        assert revisions[0]["change_summary"] == "manual"
+
     def test_rejects_stale_entry_update(self, client):
         _register(client)
         _login(client)
