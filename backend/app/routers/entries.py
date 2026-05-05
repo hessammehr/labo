@@ -453,12 +453,12 @@ def update_entry(
         )
     )
     if should_snapshot:
-        summary = body.change_summary if body.checkpoint else "Auto checkpoint"
         revision = EntryRevision(
             entry_id=entry.id,
             author_id=user.id,
             content_blocks=entry.content_blocks,
-            change_summary=summary,
+            kind="manual" if body.checkpoint else "auto",
+            change_summary=body.change_summary if body.checkpoint else "",
         )
         db.add(revision)
 
@@ -521,7 +521,8 @@ def restore_revision(
         entry_id=entry.id,
         author_id=user.id,
         content_blocks=entry.content_blocks,
-        change_summary="Before restore",
+        kind="before_restore",
+        change_summary="",
     )
     db.add(checkpoint)
 

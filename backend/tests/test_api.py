@@ -223,6 +223,7 @@ class TestEntries:
         resp = client.get(f"/api/entries/{entry_id}/revisions")
         revisions = resp.json()
         assert len(revisions) == 1
+        assert revisions[0]["kind"] == "manual"
         assert revisions[0]["change_summary"] == "manual save"
         # Revision stores the state *before* the checkpoint
         assert revisions[0]["content_blocks"] == [{"type": "text", "text": "hello v2"}]
@@ -270,7 +271,8 @@ class TestEntries:
 
         revisions = client.get(f"/api/entries/{entry_id}/revisions").json()
         assert len(revisions) == 1
-        assert revisions[0]["change_summary"] == "Auto checkpoint"
+        assert revisions[0]["kind"] == "auto"
+        assert revisions[0]["change_summary"] == ""
         assert revisions[0]["content_blocks"] == [{"type": "text", "text": "v3"}]
 
         # The autosave that just landed advanced updated_at, so an immediate
@@ -315,6 +317,7 @@ class TestEntries:
         )
         revisions = client.get(f"/api/entries/{entry_id}/revisions").json()
         assert len(revisions) == 1
+        assert revisions[0]["kind"] == "manual"
         assert revisions[0]["change_summary"] == "manual"
 
     def test_rejects_stale_entry_update(self, client):
@@ -410,6 +413,8 @@ class TestEntries:
         assert resp.json()["content_blocks"] == [{"type": "text", "text": "v1"}]
         assert resp.json()["version"] == 3
 
-        # Should have created an undo checkpoint
+        # Should have created an undo checkpoint, tagged before_restore.
         revisions = client.get(f"/api/entries/{entry_id}/revisions").json()
         assert len(revisions) == 2
+        kinds = {r["kind"] for r in revisions}
+        assert kinds == {"manual", "before_restore"}

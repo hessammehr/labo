@@ -76,6 +76,13 @@ class EntryRevision(Base):
     entry_id = Column(String(32), ForeignKey("entries.id"), nullable=False)
     author_id = Column(String(32), ForeignKey("users.id"), nullable=False)
     content_blocks = Column(JSON, nullable=False)
+    # How this revision was produced. Behaviour must branch on this, never on
+    # change_summary (which is reserved for free-form user notes).
+    kind = Column(
+        Enum("manual", "auto", "before_restore", name="revision_kind"),
+        nullable=False,
+        default="manual",
+    )
     change_summary = Column(String(500), default="")
     created_at = Column(DateTime(timezone=True), default=_utcnow, nullable=False)
 

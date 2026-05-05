@@ -1,6 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr
+
+RevisionKind = Literal["manual", "auto", "before_restore"]
 
 
 # --- Auth ---
@@ -97,6 +100,7 @@ class EntryRevisionOut(BaseModel):
     entry_id: str
     author_id: str
     content_blocks: list[dict]
+    kind: RevisionKind
     change_summary: str
     created_at: datetime
 
